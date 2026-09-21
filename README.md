@@ -1,0 +1,145 @@
+# Codex Usage
+
+A lightweight native macOS menu bar app that shows your remaining Codex usage through the official Codex CLI App Server.
+
+This is an independent project, not an official OpenAI app or an OpenAI-endorsed product.
+
+The menu bar shows remaining percentages. Click it for usage details. The English interface uses native macOS controls, system fonts, and light and dark appearances.
+
+- Menu bar: `Codex 74% / 38%`, or a single percentage when only one usage window is available.
+- Popover: remaining and used percentages, reset times and countdowns, additional credits, available usage resets, and the last update time.
+- Manual refresh, launch at login, configurable Codex CLI path, and quit controls.
+- Refreshes at startup, on usage notifications, and every 60 seconds. Failed requests retry with increasing delays, up to five minutes.
+
+## Install a downloaded app
+
+**The app is not notarized by Apple or signed with a Developer ID certificate.** macOS may block the first launch. Continue only if you trust this project and the download source.
+
+1. Extract the download and move **Codex Usage.app** to **Applications**.
+2. Open the app once. If macOS says it cannot verify the developer or check the app, dismiss the alert.
+3. Open **System Settings → Privacy & Security** and select **Open Anyway** for this app in the Security section.
+4. Confirm with **Open** and authenticate if macOS asks you to.
+
+You can then open the app normally. It appears in the menu bar, without a Dock icon. Usage reads require the official Codex CLI to be installed and signed in with `codex login` in Terminal.
+
+This exception does not notarize the app. If **Open Anyway** is unavailable, or macOS reports damage or malware, stop and contact the download provider or your Mac administrator. See [Apple’s official instructions](https://support.apple.com/en-us/102445).
+
+The [installation guide](INSTALL.md) is copied to `dist/INSTALL.md` during builds. Include it alongside the app in release archives.
+
+## Build and run
+
+The app requires macOS 14 or later and the official Codex CLI. App bundle builds have been verified with Xcode 27, which compiles the Icon Composer assets. The Swift sources use Swift 5.9 language mode and target macOS 14.
+
+The app has no external Swift package, Electron, Node, or Python runtime dependencies. Sign in using `codex login` in Terminal first.
+
+```sh
+./scripts/build-app.sh
+open "dist/Codex Usage.app"
+```
+
+The build script packages a release binary for the current Mac architecture and applies a local ad-hoc signature. It does not provide Developer ID signing, notarization, or a universal binary.
+
+To build a release archive with the app, installation guide, and license:
+
+```sh
+./scripts/package-app.sh
+```
+
+This creates `dist/Codex-Usage-0.1.0-macos-arm64.zip` on Apple Silicon and a matching `.sha256` checksum file. The filename uses the actual bundle version and binary architecture. The script verifies the extracted archive before producing the checksum. Upload only the intended ZIP and checksum, not the entire `dist` directory.
+
+### Compatibility and validation
+
+The current binary has been tested on Apple Silicon with macOS 27 and the native Codex CLI 0.155.0 installed through Homebrew. macOS 14 is the deployment target; macOS 14, 15, and 26 runtime behavior and Intel builds have not been verified. npm wrappers that require `node` from a shell-specific PATH are also unverified and may fail when launched from Finder or at login; use a native Codex executable for this release.
+
+Long-running use, sleep/wake recovery, and an actual logout/login cycle still need real-world validation. Source builds and local checks do not verify the first-launch experience of a quarantined download on another Mac.
+
+## Settings
+
+Open **Settings…** from the popover or press **⌘,** while the app is active. Opening an already-running app from Finder also shows Settings. The app version appears below the Codex Usage name and is read from the installed bundle.
+
+Leave the executable path empty to search absolute directories in `PATH` and known installation locations. If detection fails, select the `codex` executable and click **Apply**. Invalid paths are rejected without saving them or interrupting the existing connection. **Use Automatic Detection** restores the default search.
+
+Authentication is handled by the CLI. If the app reports a sign-in problem, check the CLI login in Terminal.
+
+Enable **General → Launch at Login** to start the app when you sign in to your Mac. The app does not register automatically on first launch; the switch reflects the actual macOS registration status. If approval is required, use **Open System Settings…** or **Cancel Request**. Changes take effect immediately without clicking Apply. Move the app to its final location before enabling this option.
+
+## How it works and privacy
+
+The app maintains one `codex app-server` child process and communicates over local stdio JSONL. The official CLI handles existing authentication and network requests. The app does not directly access cookies, authentication files, the browser Keychain, or private HTTP endpoints.
+
+Usage and account responses are kept in memory. Only the custom CLI path is saved in UserDefaults. Launch at login uses Apple’s `SMAppService.mainApp`, with registration state managed by macOS.
+
+The app does not request Full Disk Access, Accessibility, or Screen Recording permissions. Mac App Sandbox is not enabled. The CLI may write its own state under `~/.codex`.
+
+Usage notifications may contain partial responses, so the app requests a fresh snapshot. Notifications for unrelated usage buckets are ignored. If a request fails, the menu bar shows `Codex ?` and any retained popover values are labeled as the last known usage. Account changes clear previous values. The app cleans up its child process on quit, sleep, and executable path changes.
+
+General ChatGPT per-model message quotas and low-usage alerts are not included.
+
+## Development and testing
+
+### Version policy
+
+The first planned GitHub release is **0.1.0**. Keep `CFBundleShortVersionString` at 0.1.0 during development and do not automatically increment `CFBundleVersion`. Change either value only when the project owner explicitly requests a release version change.
+
+Earlier internal development notes used 0.2.x and 0.3.0 as work markers; these were not public releases.
+
+### Tests
+
+```sh
+swift test --disable-sandbox
+```
+
+Only the fake stdio server used by tests requires `/usr/bin/python3` from the macOS developer tools. Tests run without a real account or network access and cover response parsing, CLI discovery, initialization, errors, timeouts, EOF, notifications, process cleanup, and presentation state.
+
+Launch-at-login tests substitute the OS registration boundary to cover registration and removal failures, pending approval, overlapping requests, and external status changes.
+
+App views and lifecycle code are in `Sources/CodexUsage`. Models, connection handling, and state management are in `Sources/CodexUsageCore`.
+
+To check application termination signals, quit any running instance first, then run:
+
+```sh
+python3 scripts/test-app-lifecycle.py "dist/Codex Usage.app/Contents/MacOS/CodexUsage"
+```
+
+This check briefly launches the app with its normal CLI configuration and may read usage from your account.
+
+Render 16 production SwiftUI view states with sample data in light and dark appearances:
+
+```sh
+./scripts/render-ui.sh
+```
+
+Images are saved to `.build/ui-previews`. This checks layout separately from live menu bar interaction tests.
+
+The icon source is `Resources/AppIcon.icon`; an exported PNG is available at `Resources/AppIcon.png`.
+
+## Initial protocol investigation
+
+On September 19, 2026, a live `account/rateLimits/read` request succeeded with Codex CLI `0.155.0`. The observed account had a weekly `primary` window and no `secondary` window. Do not assume that `primary` always means a five-hour window.
+
+- [Swift protocol probe](experiments/rate-limits-probe.swift)
+- [Sample response with account and credit identifiers redacted](experiments/response-redacted.json)
+- [Related schemas generated from the installed CLI](experiments/schema/0.155.0/)
+
+Run the probe from the project directory:
+
+```sh
+swift experiments/rate-limits-probe.swift "$(command -v codex)"
+```
+
+To read once and then observe notifications for 60 seconds without polling:
+
+```sh
+swift experiments/rate-limits-probe.swift "$(command -v codex)" 60
+```
+
+The CLI must already be signed in. The probe launches only the official CLI using `Process` and `Pipe`. It does not read browser cookies or authentication files, scrape websites, implement login, or run model requests. The CLI manages its own authentication, local state, and network access.
+
+The probe is an investigation tool, not the production app client. Automatic reconnection, application lifecycle handling, user-facing errors, and GUI executable discovery are implemented separately in the app sources.
+
+## License
+
+Original project code and assets are provided under the [MIT License](LICENSE).
+The generated Codex protocol schemas in `experiments/schema/` retain their
+[upstream Apache-2.0 license and notices](experiments/schema/README.md).
+The official Codex CLI is installed separately and is not bundled with this app.
