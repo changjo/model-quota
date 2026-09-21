@@ -12,5 +12,6 @@ xcrun swiftc "${compiler_options[@]}" -emit-library -emit-module -module-name Co
     -emit-module-path "$render_dir/CodexUsageCore.swiftmodule"
 xcrun swiftc "${compiler_options[@]}" -I "$render_dir" -L "$render_dir" -lCodexUsageCore \
     -Xlinker -rpath -Xlinker "$render_dir" Sources/CodexUsage/UsagePopover.swift \
+    Sources/CodexUsage/WeeklyHistogramView.swift \
     Sources/CodexUsage/SettingsView.swift scripts/render-ui.swift -o "$render_dir/render"
 "$render_dir/render" "$output_dir"

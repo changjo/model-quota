@@ -76,7 +76,10 @@ struct UsagePopover: View {
                     VStack(spacing: 0) {
                         ForEach(Array(snapshot.quotas.enumerated()), id: \.element.id) { index, quota in
                             if index > 0 { Divider().padding(.horizontal, 14) }
-                            QuotaView(quota: quota)
+                            QuotaView(
+                                quota: quota,
+                                weeklyCycle: quota.durationMinutes == 10080 ? store.weeklyTracker.currentCycle : nil
+                            )
                         }
                     }
                     .background(.background, in: RoundedRectangle(cornerRadius: 10))
@@ -147,6 +150,7 @@ struct UsagePopover: View {
 
 private struct QuotaView: View {
     let quota: Quota
+    var weeklyCycle: WeeklyUsageCycle? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -165,6 +169,11 @@ private struct QuotaView: View {
                 .tint(quota.remainingPercent <= 10 ? .orange : .accentColor)
                 .accessibilityLabel("\(quota.title) remaining usage")
                 .accessibilityValue("\(quota.remainingPercent) percent")
+
+            if let weeklyCycle, quota.durationMinutes == 10080 {
+                WeeklyHistogramView(cycle: weeklyCycle)
+            }
+
             if let date = quota.resetDate {
                 TimelineView(.periodic(from: .now, by: 60)) { context in
                     VStack(alignment: .leading, spacing: 3) {

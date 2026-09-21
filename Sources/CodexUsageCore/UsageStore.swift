@@ -13,6 +13,8 @@ public final class UsageStore: ObservableObject {
     @Published public private(set) var customPath: String
     @Published private var running = false
 
+    public let weeklyTracker: WeeklyUsageTracker
+
     private let client: AppServerConnection
     private let defaults: UserDefaults
     private let locate: (String) throws -> URL
@@ -27,9 +29,11 @@ public final class UsageStore: ObservableObject {
     private var failures = 0
 
     public init(client: AppServerConnection? = nil, defaults: UserDefaults = .standard,
+                weeklyTracker: WeeklyUsageTracker? = nil,
                 locate: @escaping (String) throws -> URL = { try ExecutableLocator.resolve(customPath: $0) }) {
         self.client = client ?? CodexAppServerClient()
         self.defaults = defaults
+        self.weeklyTracker = weeklyTracker ?? WeeklyUsageTracker(userDefaults: defaults)
         self.locate = locate
         self.customPath = defaults.string(forKey: "codexExecutablePath") ?? ""
         self.client.onNotification = { [weak self] event in self?.notified(event) }
@@ -77,6 +81,7 @@ public final class UsageStore: ObservableObject {
                 }
                 if accountRevision == revision {
                     snapshot = response
+                    weeklyTracker.record(snapshot: response)
                     lastUpdated = Date()
                     error = nil
                     failures = 0
@@ -158,6 +163,7 @@ public final class UsageStore: ObservableObject {
             snapshot = nil
             lastUpdated = nil
             error = nil
+            weeklyTracker.clear()
         case .rateLimitsChanged(let id):
             guard id == nil || id == "codex" else { return }
         }
