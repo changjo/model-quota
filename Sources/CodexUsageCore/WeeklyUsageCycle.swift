@@ -7,23 +7,28 @@ public struct WeeklyUsageCycle: Codable, Equatable, Sendable {
     public var lastObservedAt: Date
     public var dailyUsage: [Double]
     public var offlineGapDays: Set<Int>
+    public var accountId: String?
 
     public init(
         resetsAt: Int64,
         cycleStart: Date,
         initialPercent: Double,
         initialDayIndex: Int,
-        observedAt: Date = Date()
+        dayCount: Int = 7,
+        observedAt: Date = Date(),
+        accountId: String? = nil
     ) {
         self.resetsAt = resetsAt
         self.cycleStart = cycleStart
         self.lastObservedPercent = initialPercent
         self.lastObservedAt = observedAt
-        var deltas = Array(repeating: 0.0, count: 7)
-        if initialDayIndex >= 0 && initialDayIndex < 7 {
+        let count = max(7, dayCount)
+        var deltas = Array(repeating: 0.0, count: count)
+        if initialDayIndex >= 0 && initialDayIndex < count {
             deltas[initialDayIndex] = initialPercent
         }
         self.dailyUsage = deltas
         self.offlineGapDays = initialPercent > 0 ? [initialDayIndex] : []
+        self.accountId = accountId
     }
 }

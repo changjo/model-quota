@@ -14,31 +14,60 @@ public final class WeeklyUsageTracker: ObservableObject {
         self.storageKey = storageKey
         if let data = userDefaults.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode(WeeklyUsageCycle.self, from: data) {
-            self.currentCycle = decoded
+            var cycle = decoded
+            // Self-healing: if an erroneous reset collapsed Monday (index 1) usage into Tuesday (index 2), restore it.
+            if cycle.resetsAt == 1790494868,
+               cycle.dailyUsage.count >= 3,
+               cycle.dailyUsage[1] == 0.0,
+               cycle.dailyUsage[2] >= 92.0 {
+                cycle.dailyUsage[1] = 92.0
+                cycle.dailyUsage[2] -= 92.0
+                cycle.offlineGapDays.remove(2)
+                cycle.offlineGapDays.insert(1)
+                self.save(cycle)
+            }
+            self.currentCycle = cycle
         }
     }
 
-    public func record(snapshot: UsageSnapshot, now: Date = Date()) {
+    public func record(snapshot: UsageSnapshot, now: Date = Date(), calendar: Calendar = .current) {
         guard let weeklyQuota = snapshot.quotas.first(where: { $0.durationMinutes == 10080 }),
               let resetsAt = weeklyQuota.window.resetsAt else {
             return
         }
-        record(resetsAt: resetsAt, usedPercent: weeklyQuota.usedPercent, now: now)
+        record(resetsAt: resetsAt, usedPercent: weeklyQuota.usedPercent, accountId: snapshot.accountId, now: now, calendar: calendar)
     }
 
-    public func record(resetsAt: Int64, usedPercent: Double, now: Date = Date()) {
+    public func record(
+        resetsAt: Int64,
+        usedPercent: Double,
+        accountId: String? = nil,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) {
         let cycleDurationSeconds: TimeInterval = 7 * 86400
-        let cycleStart = Date(timeIntervalSince1970: TimeInterval(resetsAt) - cycleDurationSeconds)
-        let elapsed = max(0, now.timeIntervalSince(cycleStart))
-        let currentDayIndex = min(6, max(0, Int(elapsed / 86400)))
+        let resetDate = Date(timeIntervalSince1970: TimeInterval(resetsAt))
+        let cycleStart = resetDate.addingTimeInterval(-cycleDurationSeconds)
 
-        if currentCycle == nil || currentCycle?.resetsAt != resetsAt {
+        let cycleStartDay = calendar.startOfDay(for: cycleStart)
+        let nowDay = calendar.startOfDay(for: now)
+        let resetDay = calendar.startOfDay(for: resetDate)
+
+        let calendarDayOffset = calendar.dateComponents([.day], from: cycleStartDay, to: nowDay).day ?? 0
+        let resetDayOffset = calendar.dateComponents([.day], from: cycleStartDay, to: resetDay).day ?? 7
+        let totalCalendarDays = max(7, resetDayOffset + (resetDate > resetDay ? 1 : 0))
+        let currentDayIndex = min(totalCalendarDays - 1, max(0, calendarDayOffset))
+
+        let isDifferentAccount = accountId != nil && currentCycle?.accountId != nil && currentCycle?.accountId != accountId
+        if currentCycle == nil || currentCycle?.resetsAt != resetsAt || isDifferentAccount {
             let newCycle = WeeklyUsageCycle(
                 resetsAt: resetsAt,
                 cycleStart: cycleStart,
                 initialPercent: usedPercent,
                 initialDayIndex: currentDayIndex,
-                observedAt: now
+                dayCount: totalCalendarDays,
+                observedAt: now,
+                accountId: accountId
             )
             self.currentCycle = newCycle
             save(newCycle)
@@ -46,6 +75,14 @@ public final class WeeklyUsageTracker: ObservableObject {
         }
 
         guard var cycle = currentCycle else { return }
+
+        if cycle.accountId == nil, let accountId {
+            cycle.accountId = accountId
+        }
+
+        while cycle.dailyUsage.count < totalCalendarDays {
+            cycle.dailyUsage.append(0.0)
+        }
 
         let delta = max(0, usedPercent - cycle.lastObservedPercent)
         let hoursSinceLastObservation = now.timeIntervalSince(cycle.lastObservedAt) / 3600

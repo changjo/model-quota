@@ -220,4 +220,29 @@ final class UsageStoreTests: XCTestCase {
 
         await store.stop()
     }
+
+    func testAccountUpdatedRefreshesWithoutClearingWeeklyTracker() async throws {
+        let connection = Connection()
+        let store = makeStore(connection)
+        store.start()
+        await waitUntil { connection.reads == 1 }
+
+        let snap = try JSONDecoder().decode(
+            UsageSnapshot.self,
+            from: Data(#"{"rateLimits":{"primary":{"usedPercent":42,"windowDurationMins":10080,"resetsAt":1790494868}}}"#.utf8)
+        )
+        connection.complete(.success(snap))
+        await waitUntil { !store.isRefreshing }
+
+        XCTAssertNotNil(store.weeklyTracker.currentCycle)
+        XCTAssertEqual(store.weeklyTracker.currentCycle?.resetsAt, 1790494868)
+        XCTAssertEqual(store.weeklyTracker.currentCycle?.lastObservedPercent, 42.0)
+
+        // accountUpdated notification must NOT clear weekly tracker or nil out snapshot
+        connection.onNotification?(.accountUpdated)
+        XCTAssertNotNil(store.weeklyTracker.currentCycle)
+        XCTAssertNotNil(store.snapshot)
+
+        await store.stop()
+    }
 }

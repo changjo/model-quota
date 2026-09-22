@@ -164,6 +164,8 @@ public final class UsageStore: ObservableObject {
             lastUpdated = nil
             error = nil
             weeklyTracker.clear()
+        case .accountUpdated:
+            accountRevision += 1
         case .rateLimitsChanged(let id):
             guard id == nil || id == "codex" else { return }
         }

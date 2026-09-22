@@ -1,6 +1,7 @@
 import Foundation
 
 public struct UsageSnapshot: Decodable, Equatable, Sendable {
+    public let accountId: String?
     public let rateLimits: RateLimitBucket
     public let rateLimitsByLimitId: [String: RateLimitBucket]?
     public let ordinaryUsageAllowed: Bool?

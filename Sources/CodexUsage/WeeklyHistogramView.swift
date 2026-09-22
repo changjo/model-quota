@@ -4,14 +4,29 @@ import CodexUsageCore
 struct WeeklyHistogramView: View {
     let cycle: WeeklyUsageCycle
     var now: Date = Date()
+    var calendar: Calendar = .current
+
+    private var barCount: Int {
+        max(7, cycle.dailyUsage.count)
+    }
 
     private var currentDayIndex: Int {
-        let elapsed = max(0, now.timeIntervalSince(cycle.cycleStart))
-        return min(6, max(0, Int(elapsed / 86400)))
+        let cycleStartDay = calendar.startOfDay(for: cycle.cycleStart)
+        let nowDay = calendar.startOfDay(for: now)
+        let dayOffset = calendar.dateComponents([.day], from: cycleStartDay, to: nowDay).day ?? 0
+        return min(barCount - 1, max(0, dayOffset))
     }
 
     private var maxUsage: Double {
         max(cycle.dailyUsage.max() ?? 20.0, 20.0)
+    }
+
+    private var barSpacing: CGFloat {
+        barCount > 7 ? 4 : 6
+    }
+
+    private var barWidth: CGFloat {
+        barCount > 7 ? 28 : 32
     }
 
     var body: some View {
@@ -28,8 +43,8 @@ struct WeeklyHistogramView: View {
                 }
             }
 
-            HStack(spacing: 6) {
-                ForEach(0..<7, id: \.self) { index in
+            HStack(spacing: barSpacing) {
+                ForEach(0..<barCount, id: \.self) { index in
                     dayBar(index: index)
                 }
             }
@@ -42,7 +57,7 @@ struct WeeklyHistogramView: View {
     private func dayBar(index: Int) -> some View {
         let isCurrent = index == currentDayIndex
         let isFuture = index > currentDayIndex
-        let usage = cycle.dailyUsage[index]
+        let usage = index < cycle.dailyUsage.count ? cycle.dailyUsage[index] : 0.0
         let fillFraction = isFuture ? 0.0 : min(1.0, max(0.0, usage / maxUsage))
         let hasGap = cycle.offlineGapDays.contains(index)
 
@@ -51,31 +66,31 @@ struct WeeklyHistogramView: View {
                 // Background track
                 RoundedRectangle(cornerRadius: 3)
                     .fill(Color.secondary.opacity(isFuture ? 0.08 : 0.15))
-                    .frame(width: 32, height: 38)
+                    .frame(width: barWidth, height: 38)
 
                 // Usage fill
                 if !isFuture && fillFraction > 0 {
                     RoundedRectangle(cornerRadius: 3)
                         .fill(isCurrent ? Color.accentColor : Color.accentColor.opacity(0.65))
-                        .frame(width: 32, height: max(3.0, 38.0 * fillFraction))
+                        .frame(width: barWidth, height: max(3.0, 38.0 * fillFraction))
                 }
             }
 
             // Day label
             HStack(spacing: 1) {
                 Text("D\(index + 1)")
-                    .font(.system(size: 10, weight: isCurrent ? .bold : .regular))
+                    .font(.system(size: barCount > 7 ? 9 : 10, weight: isCurrent ? .bold : .regular))
                     .foregroundStyle(isCurrent ? .primary : .secondary)
                 if hasGap {
                     Text("*")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(Color.orange)
                 }
             }
 
             // Usage percentage
             Text(isFuture ? "-" : "\(Int(usage.rounded()))%")
-                .font(.system(size: 9))
+                .font(.system(size: barCount > 7 ? 8 : 9))
                 .monospacedDigit()
                 .foregroundStyle(isCurrent ? .primary : .secondary)
         }
@@ -84,10 +99,24 @@ struct WeeklyHistogramView: View {
 
     private func tooltip(for index: Int, usage: Double, isCurrent: Bool, isFuture: Bool, hasGap: Bool) -> String {
         let dayNum = index + 1
-        if isFuture {
-            return "Day \(dayNum): Not yet reached"
+        let cycleStartDay = calendar.startOfDay(for: cycle.cycleStart)
+        let barDate = calendar.date(byAdding: .day, value: index, to: cycleStartDay)
+
+        let dateStr: String
+        if let barDate {
+            let df = DateFormatter()
+            df.locale = Locale.current
+            df.timeZone = calendar.timeZone
+            df.dateFormat = "M/d (E)"
+            dateStr = " (\(df.string(from: barDate)))"
+        } else {
+            dateStr = ""
         }
-        var info = "Day \(dayNum): \(Int(usage.rounded()))% used"
+
+        if isFuture {
+            return "Day \(dayNum)\(dateStr): Not yet reached"
+        }
+        var info = "Day \(dayNum)\(dateStr): \(Int(usage.rounded()))% used"
         if isCurrent {
             info += " (Today)"
         }

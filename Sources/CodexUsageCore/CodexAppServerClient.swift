@@ -4,6 +4,7 @@ import Darwin
 public enum AccountNotification: Equatable, Sendable {
     case rateLimitsChanged(limitId: String?)
     case accountChanged
+    case accountUpdated
 }
 
 @MainActor
@@ -208,7 +209,7 @@ public final class CodexAppServerClient: AppServerConnection {
             if let id = message["id"] {
                 try send(["id": id, "error": ["code": -32601, "message": "Unsupported by usage client"]])
             } else if method == "account/updated" {
-                onNotification?(.accountChanged)
+                onNotification?(.accountUpdated)
             } else if method == "account/rateLimits/updated" {
                 let params = message["params"] as? [String: Any]
                 let bucket = params?["rateLimits"] as? [String: Any]
