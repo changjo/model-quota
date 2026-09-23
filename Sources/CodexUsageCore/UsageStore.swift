@@ -35,6 +35,7 @@ public final class UsageStore: ObservableObject {
     }
 
     public let weeklyTracker: WeeklyUsageTracker
+    public let geminiWeeklyTracker: WeeklyUsageTracker
 
     private let client: AppServerConnection
     private let geminiClient: GeminiUsageService
@@ -56,6 +57,7 @@ public final class UsageStore: ObservableObject {
                 geminiClient: GeminiUsageService? = nil,
                 defaults: UserDefaults = .standard,
                 weeklyTracker: WeeklyUsageTracker? = nil,
+                geminiWeeklyTracker: WeeklyUsageTracker? = nil,
                 locate: @escaping (String) throws -> URL = { try ExecutableLocator.resolve(customPath: $0) }) {
         let codexPath = defaults.string(forKey: "codexExecutablePath") ?? ""
         let agyPath = defaults.string(forKey: "agyExecutablePath") ?? ""
@@ -63,6 +65,7 @@ public final class UsageStore: ObservableObject {
         self.geminiClient = geminiClient ?? GeminiAgyClient(customPath: agyPath)
         self.defaults = defaults
         self.weeklyTracker = weeklyTracker ?? WeeklyUsageTracker(userDefaults: defaults)
+        self.geminiWeeklyTracker = geminiWeeklyTracker ?? WeeklyUsageTracker(userDefaults: defaults, storageKey: "gemini_usage_weekly_tracker")
         self.locate = locate
         self.customPath = codexPath
         self.agyCustomPath = agyPath
@@ -253,6 +256,13 @@ public final class UsageStore: ObservableObject {
                 let snap = try await geminiClient.readUsage()
                 guard !Task.isCancelled else { return }
                 self.geminiSnapshot = snap
+                if let weekly = snap.weeklyBucket, let resetDate = weekly.resetTime {
+                    self.geminiWeeklyTracker.record(
+                        resetsAt: Int64(resetDate.timeIntervalSince1970),
+                        usedPercent: weekly.usedPercent,
+                        accountId: "gemini"
+                    )
+                }
                 self.geminiLastUpdated = Date()
                 self.geminiError = nil
             } catch {

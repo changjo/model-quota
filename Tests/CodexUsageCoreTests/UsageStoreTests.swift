@@ -263,6 +263,8 @@ final class UsageStoreTests: XCTestCase {
 
         XCTAssertNotNil(store.geminiSnapshot)
         XCTAssertEqual(store.geminiSnapshot?.primaryRemainingPercent, 86)
+        XCTAssertNotNil(store.geminiWeeklyTracker.currentCycle)
+        XCTAssertEqual(store.geminiWeeklyTracker.currentCycle?.lastObservedPercent, store.geminiSnapshot?.weeklyBucket?.usedPercent)
         XCTAssertEqual(store.menuBarItems.count, 2)
         XCTAssertEqual(store.menuBarItems[0].label, "Codex")
         XCTAssertEqual(store.menuBarItems[1].label, "Gemini")

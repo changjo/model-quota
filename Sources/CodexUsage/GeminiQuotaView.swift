@@ -7,6 +7,7 @@ struct GeminiQuotaView: View {
     let label: String
     let lastUpdated: Date?
     let isRefreshing: Bool
+    var weeklyCycle: WeeklyUsageCycle? = nil
 
     var body: some View {
         VStack(spacing: 12) {
@@ -44,7 +45,10 @@ struct GeminiQuotaView: View {
                             VStack(spacing: 0) {
                                 ForEach(Array(group.buckets.enumerated()), id: \.element.id) { index, bucket in
                                     if index > 0 { Divider().padding(.horizontal, 14) }
-                                    GeminiBucketRow(bucket: bucket)
+                                    GeminiBucketRow(
+                                        bucket: bucket,
+                                        weeklyCycle: (bucket.id == "gemini-weekly" || (bucket.window == "weekly" && group.name.localizedCaseInsensitiveContains("Gemini"))) ? weeklyCycle : nil
+                                    )
                                 }
                             }
                             .background(.background, in: RoundedRectangle(cornerRadius: 10))
@@ -95,6 +99,7 @@ struct GeminiQuotaView: View {
 
 private struct GeminiBucketRow: View {
     let bucket: GeminiUsageSnapshot.Bucket
+    var weeklyCycle: WeeklyUsageCycle? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -113,6 +118,10 @@ private struct GeminiBucketRow: View {
                 .tint(bucket.remainingPercent <= 10 ? .orange : .accentColor)
                 .accessibilityLabel("\(bucket.name) remaining usage")
                 .accessibilityValue("\(bucket.remainingPercent) percent")
+
+            if let weeklyCycle, bucket.window == "weekly" || bucket.id.contains("weekly") {
+                WeeklyHistogramView(cycle: weeklyCycle)
+            }
 
             if let date = bucket.resetTime {
                 TimelineView(.periodic(from: .now, by: 60)) { context in

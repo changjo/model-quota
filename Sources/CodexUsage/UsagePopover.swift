@@ -73,7 +73,8 @@ struct UsagePopover: View {
                 error: store.geminiError,
                 label: store.geminiLabel,
                 lastUpdated: store.geminiLastUpdated,
-                isRefreshing: store.isGeminiRefreshing
+                isRefreshing: store.isGeminiRefreshing,
+                weeklyCycle: store.geminiWeeklyTracker.currentCycle
             )
         }
         .padding(.horizontal, 16)
