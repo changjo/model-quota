@@ -91,13 +91,13 @@ public final class UsageStore: ObservableObject {
 
         if showCodexInMenuBar {
             let val: String
-            if isRefreshing {
+            if let snapshot {
+                let quotas = snapshot.quotas.map { "\($0.remainingPercent)%" }
+                val = quotas.isEmpty ? "?" : quotas.joined(separator: " / ")
+            } else if isRefreshing {
                 val = "…"
             } else if error != nil {
                 val = "?"
-            } else if let snapshot {
-                let quotas = snapshot.quotas.map { "\($0.remainingPercent)%" }
-                val = quotas.isEmpty ? "?" : quotas.joined(separator: " / ")
             } else {
                 val = "?"
             }
@@ -112,14 +112,14 @@ public final class UsageStore: ObservableObject {
 
         if showGeminiInMenuBar {
             let val: String
-            if isGeminiRefreshing {
+            if let snap = geminiSnapshot {
+                val = "\(snap.primaryRemainingPercent)%"
+            } else if isGeminiRefreshing {
                 val = "…"
             } else if geminiError != nil {
                 val = "?"
-            } else if let snap = geminiSnapshot {
-                val = "\(snap.primaryRemainingPercent)%"
             } else {
-                val = "…"
+                val = "?"
             }
             items.append(ProviderUsageItem(
                 id: "gemini",
@@ -131,10 +131,19 @@ public final class UsageStore: ObservableObject {
         }
 
         if items.isEmpty {
+            let val: String
+            if let snapshot {
+                let quotas = snapshot.quotas.map { "\($0.remainingPercent)%" }
+                val = quotas.isEmpty ? "?" : quotas.joined(separator: " / ")
+            } else if isRefreshing {
+                val = "…"
+            } else {
+                val = "?"
+            }
             items.append(ProviderUsageItem(
                 id: "codex",
                 label: codexLabel,
-                summaryValue: snapshot != nil ? (snapshot!.quotas.map { "\($0.remainingPercent)%" }.joined(separator: " / ")) : (isRefreshing ? "…" : "?"),
+                summaryValue: val,
                 isRefreshing: isRefreshing,
                 hasError: error != nil
             ))

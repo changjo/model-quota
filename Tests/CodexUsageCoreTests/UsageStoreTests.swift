@@ -280,4 +280,34 @@ final class UsageStoreTests: XCTestCase {
 
         await store.stop()
     }
+
+    func testBackgroundRefreshPreservesExistingPercentagesInsteadOfShowingEllipsis() async throws {
+        let connection = Connection()
+        let fixtureURL = Bundle.module.url(forResource: "agy-usage-sample", withExtension: "json", subdirectory: "Fixtures")
+            ?? URL(fileURLWithPath: "Tests/CodexUsageCoreTests/Fixtures/agy-usage-sample.json")
+        let geminiData = try Data(contentsOf: fixtureURL)
+        let mockGemini = MockGeminiAgyClient(mockData: geminiData)
+
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = UsageStore(client: connection, geminiClient: mockGemini, defaults: defaults,
+                               locate: { _ in URL(fileURLWithPath: "/usr/bin/true") })
+        store.start()
+        await waitUntil { connection.reads == 1 }
+        connection.complete(.success(try snapshot()))
+        await waitUntil { !store.isRefreshing && !store.isGeminiRefreshing }
+
+        XCTAssertEqual(store.menuBarItems[0].summaryValue, "3%")
+        XCTAssertEqual(store.menuBarItems[1].summaryValue, "86%")
+
+        store.refreshCodex()
+        XCTAssertTrue(store.isRefreshing)
+        // Background refresh must preserve valid existing snapshot values, never flash "…"
+        XCTAssertEqual(store.menuBarItems[0].summaryValue, "3%")
+
+        await waitUntil { connection.reads == 2 }
+        connection.complete(.success(try snapshot()))
+        await waitUntil { !store.isRefreshing }
+
+        await store.stop()
+    }
 }
