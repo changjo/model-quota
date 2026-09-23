@@ -36,7 +36,7 @@ struct UsagePopover: View {
 
             ScrollView { details }
                 .scrollBounceBehavior(.basedOnSize)
-                .frame(maxHeight: 560)
+                .frame(maxHeight: 460)
                 .fixedSize(horizontal: false, vertical: true)
 
             Divider()

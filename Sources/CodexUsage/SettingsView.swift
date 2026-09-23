@@ -234,7 +234,7 @@ struct SettingsView: View {
             .disabled(store.isReconfiguring)
             .padding(16)
         }
-        .frame(width: 540, height: 680)
+        .frame(width: 540, height: 600)
         .onAppear {
             path = store.customPath
             agyPath = store.agyCustomPath
