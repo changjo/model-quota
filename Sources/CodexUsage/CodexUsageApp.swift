@@ -18,8 +18,12 @@ struct CodexUsageApp: App {
             UsagePopover(store: store) { SettingsWindowController.shared.show(store: store) }
                 .environment(\.locale, Locale(identifier: "en"))
         } label: {
-            Text(store.menuBarTitle).monospacedDigit()
-                .accessibilityLabel("Codex remaining usage: \(store.menuBarTitle)")
+            MenuBarGridView(items: store.menuBarItems)
+                .accessibilityLabel(
+                    store.menuBarItems.isEmpty
+                        ? "Codex usage"
+                        : "Usage: \(store.menuBarItems.map(\.displayText).joined(separator: ", "))"
+                )
         }
         .menuBarExtraStyle(.window)
         .commands {
