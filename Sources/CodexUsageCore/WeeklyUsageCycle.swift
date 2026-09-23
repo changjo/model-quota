@@ -16,15 +16,22 @@ public struct WeeklyUsageCycle: Codable, Equatable, Sendable {
         initialDayIndex: Int,
         dayCount: Int = 7,
         observedAt: Date = Date(),
-        accountId: String? = nil
+        accountId: String? = nil,
+        knownDailyUsage: [Double]? = nil,
+        knownOfflineGapDays: Set<Int>? = nil
     ) {
         self.resetsAt = resetsAt
         self.cycleStart = cycleStart
         self.lastObservedPercent = initialPercent
         self.lastObservedAt = observedAt
         let count = max(7, dayCount)
-        var deltas = Array(repeating: 0.0, count: count)
-        if resetsAt == 1790494868 && initialDayIndex >= 2 && initialPercent >= 92.0 {
+        if let knownDailyUsage {
+            var deltas = knownDailyUsage
+            while deltas.count < count { deltas.append(0.0) }
+            self.dailyUsage = deltas
+            self.offlineGapDays = knownOfflineGapDays ?? (initialPercent > 0 ? [initialDayIndex] : [])
+        } else if resetsAt == 1790494868 && initialDayIndex >= 2 && initialPercent >= 92.0 {
+            var deltas = Array(repeating: 0.0, count: count)
             deltas[1] = 92.0
             let remainingAfterMon = initialPercent - 92.0
             if count > 2 {
@@ -35,13 +42,15 @@ public struct WeeklyUsageCycle: Codable, Equatable, Sendable {
                 deltas[initialDayIndex] = remainingAfterTue
             }
             self.offlineGapDays = [1]
+            self.dailyUsage = deltas
         } else {
+            var deltas = Array(repeating: 0.0, count: count)
             if initialDayIndex >= 0 && initialDayIndex < count {
                 deltas[initialDayIndex] = initialPercent
             }
             self.offlineGapDays = initialPercent > 0 ? [initialDayIndex] : []
+            self.dailyUsage = deltas
         }
-        self.dailyUsage = deltas
         self.accountId = accountId
     }
 }

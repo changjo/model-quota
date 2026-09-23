@@ -59,8 +59,9 @@ public final class UsageStore: ObservableObject {
                 weeklyTracker: WeeklyUsageTracker? = nil,
                 geminiWeeklyTracker: WeeklyUsageTracker? = nil,
                 locate: @escaping (String) throws -> URL = { try ExecutableLocator.resolve(customPath: $0) }) {
-        let codexPath = defaults.string(forKey: "codexExecutablePath") ?? ""
-        let agyPath = defaults.string(forKey: "agyExecutablePath") ?? ""
+        let legacy = UserDefaults(suiteName: "dev.changjo.CodexUsage")
+        let codexPath = defaults.string(forKey: "codexExecutablePath") ?? legacy?.string(forKey: "codexExecutablePath") ?? ""
+        let agyPath = defaults.string(forKey: "agyExecutablePath") ?? legacy?.string(forKey: "agyExecutablePath") ?? ""
         self.client = client ?? CodexAppServerClient()
         self.geminiClient = geminiClient ?? GeminiAgyClient(customPath: agyPath)
         self.defaults = defaults
@@ -70,10 +71,29 @@ public final class UsageStore: ObservableObject {
         self.customPath = codexPath
         self.agyCustomPath = agyPath
 
-        self.showCodexInMenuBar = defaults.object(forKey: "menuBarShowCodex") as? Bool ?? true
-        self.showGeminiInMenuBar = defaults.object(forKey: "menuBarShowGemini") as? Bool ?? true
-        self.codexLabel = defaults.string(forKey: "serviceLabelCodex") ?? "Codex"
-        self.geminiLabel = defaults.string(forKey: "serviceLabelGemini") ?? "Gemini"
+        self.showCodexInMenuBar = defaults.object(forKey: "menuBarShowCodex") as? Bool ?? legacy?.object(forKey: "menuBarShowCodex") as? Bool ?? true
+        self.showGeminiInMenuBar = defaults.object(forKey: "menuBarShowGemini") as? Bool ?? legacy?.object(forKey: "menuBarShowGemini") as? Bool ?? true
+        self.codexLabel = defaults.string(forKey: "serviceLabelCodex") ?? legacy?.string(forKey: "serviceLabelCodex") ?? "Codex"
+        self.geminiLabel = defaults.string(forKey: "serviceLabelGemini") ?? legacy?.string(forKey: "serviceLabelGemini") ?? "Gemini"
+
+        if defaults.object(forKey: "menuBarShowCodex") == nil, let val = legacy?.object(forKey: "menuBarShowCodex") as? Bool {
+            defaults.set(val, forKey: "menuBarShowCodex")
+        }
+        if defaults.object(forKey: "menuBarShowGemini") == nil, let val = legacy?.object(forKey: "menuBarShowGemini") as? Bool {
+            defaults.set(val, forKey: "menuBarShowGemini")
+        }
+        if defaults.object(forKey: "serviceLabelCodex") == nil, let val = legacy?.string(forKey: "serviceLabelCodex") {
+            defaults.set(val, forKey: "serviceLabelCodex")
+        }
+        if defaults.object(forKey: "serviceLabelGemini") == nil, let val = legacy?.string(forKey: "serviceLabelGemini") {
+            defaults.set(val, forKey: "serviceLabelGemini")
+        }
+        if defaults.object(forKey: "codexExecutablePath") == nil, let val = legacy?.string(forKey: "codexExecutablePath") {
+            defaults.set(val, forKey: "codexExecutablePath")
+        }
+        if defaults.object(forKey: "agyExecutablePath") == nil, let val = legacy?.string(forKey: "agyExecutablePath") {
+            defaults.set(val, forKey: "agyExecutablePath")
+        }
 
         self.client.onNotification = { [weak self] event in self?.notified(event) }
         self.client.onDisconnect = { [weak self] error in

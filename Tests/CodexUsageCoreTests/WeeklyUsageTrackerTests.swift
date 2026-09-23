@@ -299,6 +299,101 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         XCTAssertTrue(tracker.currentCycle?.offlineGapDays.contains(1) == true)
         XCTAssertFalse(tracker.currentCycle?.offlineGapDays.contains(3) == true)
     }
+
+    func testLegacySuiteMigrationAndSelfHealingForWednesdayThursdayRollover() {
+        let legacySuite = "test.legacy.\(UUID().uuidString)"
+        let legacyDefaults = UserDefaults(suiteName: legacySuite)!
+        defer { legacyDefaults.removePersistentDomain(forName: legacySuite) }
+
+        let resetsAt: Int64 = 1790760951
+        let legacyJSON = """
+        {"resetsAt":1790760951,"lastObservedAt":811861122.95,"dailyUsage":[2,0,0,0,0,0,0,0],"offlineGapDays":[0],"lastObservedPercent":2,"cycleStart":811848951,"accountId":"00000000-0000-4000-8000-000000000001"}
+        """
+        legacyDefaults.set(Data(legacyJSON.utf8), forKey: "codex_usage_weekly_tracker")
+
+        // New suite has corrupted data where Wednesday was collapsed into Thursday
+        let corruptedJSON = """
+        {"resetsAt":1790760951,"lastObservedAt":811872839.77,"dailyUsage":[0,6,0,0,0,0,0,0],"offlineGapDays":[1],"lastObservedPercent":6,"cycleStart":811848951,"accountId":"00000000-0000-4000-8000-000000000001"}
+        """
+        defaults.set(Data(corruptedJSON.utf8), forKey: "codex_usage_weekly_tracker")
+
+        let tracker = WeeklyUsageTracker(
+            userDefaults: defaults,
+            storageKey: "codex_usage_weekly_tracker",
+            backupDirectory: nil,
+            legacySuiteNames: [legacySuite]
+        )
+
+        XCTAssertNotNil(tracker.currentCycle)
+        XCTAssertEqual(tracker.currentCycle?.resetsAt, resetsAt)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[0], 2.0, "Wednesday usage must be restored to 2.0")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 4.0, "Thursday usage must be corrected to 4.0 (6 - 2)")
+        XCTAssertEqual(tracker.currentCycle?.lastObservedPercent, 6.0)
+    }
+
+    func testDurableBackupFileRestoresCycleWhenUserDefaultsCleared() {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let resetsAt: Int64 = 1790760951
+        let cycleStart = Date(timeIntervalSince1970: TimeInterval(resetsAt) - (7 * 86400))
+        let day1 = cycleStart.addingTimeInterval(3600) // 1 hour into Day 1
+
+        let tracker = WeeklyUsageTracker(
+            userDefaults: defaults,
+            storageKey: "tracker_backup_test",
+            backupDirectory: tempDir,
+            legacySuiteNames: []
+        )
+
+        tracker.record(resetsAt: resetsAt, usedPercent: 12.0, accountId: "test_acc", now: day1)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[0], 12.0)
+
+        // Simulate wiping UserDefaults completely (e.g. app domain change or system clearing preferences)
+        defaults.removeObject(forKey: "tracker_backup_test")
+        XCTAssertNil(defaults.data(forKey: "tracker_backup_test"))
+
+        // Recreate tracker pointing to same backupDirectory
+        let restoredTracker = WeeklyUsageTracker(
+            userDefaults: defaults,
+            storageKey: "tracker_backup_test",
+            backupDirectory: tempDir,
+            legacySuiteNames: []
+        )
+
+        XCTAssertNotNil(restoredTracker.currentCycle, "Cycle must be restored from durable backup file")
+        XCTAssertEqual(restoredTracker.currentCycle?.resetsAt, resetsAt)
+        XCTAssertEqual(restoredTracker.currentCycle?.dailyUsage[0], 12.0)
+        XCTAssertEqual(restoredTracker.currentCycle?.lastObservedPercent, 12.0)
+    }
+
+    func testGeneralSelfHealingAcrossMultipleDays() {
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_heal_test", backupDirectory: nil, legacySuiteNames: [])
+
+        let cycleStart = Date(timeIntervalSince1970: 1790000000)
+        let prior = WeeklyUsageCycle(
+            resetsAt: 1790760951,
+            cycleStart: cycleStart,
+            initialPercent: 25.0,
+            initialDayIndex: 0,
+            dayCount: 8,
+            knownDailyUsage: [10.0, 15.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        )
+
+        let corrupted = WeeklyUsageCycle(
+            resetsAt: 1790760951,
+            cycleStart: cycleStart,
+            initialPercent: 30.0,
+            initialDayIndex: 2,
+            dayCount: 8,
+            knownDailyUsage: [0.0, 0.0, 30.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        )
+
+        let healed = tracker.healCycle(corrupted: corrupted, fromPrior: prior)
+        XCTAssertEqual(healed.dailyUsage[0], 10.0, "Day 1 should be restored to 10.0")
+        XCTAssertEqual(healed.dailyUsage[1], 15.0, "Day 2 should be restored to 15.0")
+        XCTAssertEqual(healed.dailyUsage[2], 5.0, "Day 3 should have remaining 5.0 (30 - 10 - 15)")
+    }
 }
 
 
