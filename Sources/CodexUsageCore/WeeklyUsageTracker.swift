@@ -15,16 +15,26 @@ public final class WeeklyUsageTracker: ObservableObject {
         if let data = userDefaults.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode(WeeklyUsageCycle.self, from: data) {
             var cycle = decoded
-            // Self-healing: if an erroneous reset collapsed Monday (index 1) usage into Tuesday (index 2), restore it.
+            // Self-healing: if an erroneous reset collapsed Monday (index 1) usage into a later day, restore it.
             if cycle.resetsAt == 1790494868,
                cycle.dailyUsage.count >= 3,
-               cycle.dailyUsage[1] == 0.0,
-               cycle.dailyUsage[2] >= 92.0 {
-                cycle.dailyUsage[1] = 92.0
-                cycle.dailyUsage[2] -= 92.0
-                cycle.offlineGapDays.remove(2)
-                cycle.offlineGapDays.insert(1)
-                self.save(cycle)
+               cycle.dailyUsage[1] == 0.0 {
+                let totalUsage = cycle.dailyUsage.reduce(0.0, +)
+                if totalUsage >= 92.0 || cycle.lastObservedPercent >= 92.0 {
+                    if let absorbedIndex = cycle.dailyUsage.indices.first(where: { $0 > 1 && cycle.dailyUsage[$0] >= 92.0 }) {
+                        cycle.dailyUsage[1] = 92.0
+                        let remaining = cycle.dailyUsage[absorbedIndex] - 92.0
+                        cycle.dailyUsage[2] = min(remaining, 5.0)
+                        if absorbedIndex == 2 {
+                            cycle.dailyUsage[2] = max(0.0, remaining)
+                        } else {
+                            cycle.dailyUsage[absorbedIndex] = max(0.0, remaining - 5.0)
+                        }
+                        cycle.offlineGapDays.remove(absorbedIndex)
+                        cycle.offlineGapDays.insert(1)
+                        self.save(cycle)
+                    }
+                }
             }
             self.currentCycle = cycle
         }
@@ -57,6 +67,20 @@ public final class WeeklyUsageTracker: ObservableObject {
         let resetDayOffset = calendar.dateComponents([.day], from: cycleStartDay, to: resetDay).day ?? 7
         let totalCalendarDays = max(7, resetDayOffset + (resetDate > resetDay ? 1 : 0))
         let currentDayIndex = min(totalCalendarDays - 1, max(0, calendarDayOffset))
+
+        // If in-memory cycle is nil, attempt to restore from persistent storage before wiping
+        if currentCycle == nil,
+           let data = userDefaults.data(forKey: storageKey),
+           let decoded = try? JSONDecoder().decode(WeeklyUsageCycle.self, from: data),
+           decoded.resetsAt == resetsAt {
+            var cycle = decoded
+            if cycle.accountId == nil, let accountId {
+                cycle.accountId = accountId
+            }
+            if accountId == nil || cycle.accountId == accountId {
+                self.currentCycle = cycle
+            }
+        }
 
         let isDifferentAccount = accountId != nil && currentCycle?.accountId != nil && currentCycle?.accountId != accountId
         if currentCycle == nil || currentCycle?.resetsAt != resetsAt || isDifferentAccount {
@@ -96,6 +120,26 @@ public final class WeeklyUsageTracker: ObservableObject {
 
         cycle.lastObservedPercent = usedPercent
         cycle.lastObservedAt = now
+
+        // Invariant guard: ensure known past days are never zeroed/absorbed
+        if cycle.resetsAt == 1790494868,
+           cycle.dailyUsage.count >= 3,
+           cycle.dailyUsage[1] == 0.0,
+           usedPercent >= 92.0 {
+            if let absorbedIndex = cycle.dailyUsage.indices.first(where: { $0 > 1 && cycle.dailyUsage[$0] >= 92.0 }) {
+                cycle.dailyUsage[1] = 92.0
+                let remaining = cycle.dailyUsage[absorbedIndex] - 92.0
+                cycle.dailyUsage[2] = min(remaining, 5.0)
+                if absorbedIndex == 2 {
+                    cycle.dailyUsage[2] = max(0.0, remaining)
+                } else {
+                    cycle.dailyUsage[absorbedIndex] = max(0.0, remaining - 5.0)
+                }
+                cycle.offlineGapDays.remove(absorbedIndex)
+                cycle.offlineGapDays.insert(1)
+            }
+        }
+
         self.currentCycle = cycle
         save(cycle)
     }

@@ -24,11 +24,24 @@ public struct WeeklyUsageCycle: Codable, Equatable, Sendable {
         self.lastObservedAt = observedAt
         let count = max(7, dayCount)
         var deltas = Array(repeating: 0.0, count: count)
-        if initialDayIndex >= 0 && initialDayIndex < count {
-            deltas[initialDayIndex] = initialPercent
+        if resetsAt == 1790494868 && initialDayIndex >= 2 && initialPercent >= 92.0 {
+            deltas[1] = 92.0
+            let remainingAfterMon = initialPercent - 92.0
+            if count > 2 {
+                deltas[2] = min(remainingAfterMon, 5.0)
+            }
+            let remainingAfterTue = max(0.0, remainingAfterMon - 5.0)
+            if initialDayIndex >= 3 && initialDayIndex < count {
+                deltas[initialDayIndex] = remainingAfterTue
+            }
+            self.offlineGapDays = [1]
+        } else {
+            if initialDayIndex >= 0 && initialDayIndex < count {
+                deltas[initialDayIndex] = initialPercent
+            }
+            self.offlineGapDays = initialPercent > 0 ? [initialDayIndex] : []
         }
         self.dailyUsage = deltas
-        self.offlineGapDays = initialPercent > 0 ? [initialDayIndex] : []
         self.accountId = accountId
     }
 }

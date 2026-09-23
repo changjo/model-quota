@@ -191,5 +191,114 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         XCTAssertTrue(tracker.currentCycle?.offlineGapDays.contains(1) == true)
         XCTAssertFalse(tracker.currentCycle?.offlineGapDays.contains(2) == true)
     }
+
+    func testSelfHealingForWednesdayCorruptedState() {
+        let wednesdayCorruptedJSON = """
+        {"accountId":"00000000-0000-4000-8000-000000000001","dailyUsage":[0,0,0,97,0,0,0,0],"lastObservedPercent":97,"offlineGapDays":[3],"lastObservedAt":811818333.542651,"resetsAt":1790494868,"cycleStart":811582868}
+        """
+        defaults.set(Data(wednesdayCorruptedJSON.utf8), forKey: "tracker_wed_corrupted")
+
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_wed_corrupted")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 92.0, "Monday usage must be restored to 92.0")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[2], 5.0, "Tuesday usage must be restored to 5.0")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[3], 0.0, "Wednesday usage must be 0.0 since no new usage beyond 97.0")
+        XCTAssertTrue(tracker.currentCycle?.offlineGapDays.contains(1) == true)
+        XCTAssertFalse(tracker.currentCycle?.offlineGapDays.contains(3) == true)
+    }
+
+    func testNilCurrentCycleReloadsFromUserDefaultsInsteadOfWiping() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Seoul")!
+        let df = DateFormatter()
+        df.timeZone = calendar.timeZone
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+
+        let validSavedJSON = """
+        {"accountId":"00000000-0000-4000-8000-000000000001","dailyUsage":[0,92,5,0,0,0,0,0],"lastObservedPercent":97,"offlineGapDays":[1],"lastObservedAt":811778726.978822,"resetsAt":1790494868,"cycleStart":811582868}
+        """
+        defaults.set(Data(validSavedJSON.utf8), forKey: "tracker_reload_test")
+
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_reload_test")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 92.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[2], 5.0)
+
+        // Simulate a new record call on Wednesday morning with currentCycle in tracker
+        let wed = df.date(from: "2026-09-23 10:00:00")!
+        tracker.record(resetsAt: 1790494868, usedPercent: 97.0, accountId: "00000000-0000-4000-8000-000000000001", now: wed, calendar: calendar)
+
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 92.0, "Monday must remain 92.0")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[2], 5.0, "Tuesday must remain 5.0")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[3], 0.0, "Wednesday must be 0.0")
+    }
+
+    func testDayRolloverAcrossEntireWeekPreservesAllBuckets() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Seoul")!
+        let df = DateFormatter()
+        df.timeZone = calendar.timeZone
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+
+        let resetsAt: Int64 = 1790494868 // 2026-09-27 16:41:08 KST
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_full_week")
+
+        // Sunday Day 1 (index 0): 5%
+        tracker.record(resetsAt: resetsAt, usedPercent: 5.0, accountId: "test", now: df.date(from: "2026-09-20 20:00:00")!, calendar: calendar)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[0], 5.0)
+
+        // Monday Day 2 (index 1): reaches 25% (+20%)
+        tracker.record(resetsAt: resetsAt, usedPercent: 25.0, accountId: "test", now: df.date(from: "2026-09-21 14:00:00")!, calendar: calendar)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[0], 5.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 20.0)
+
+        // Tuesday Day 3 (index 2): reaches 60% (+35%)
+        tracker.record(resetsAt: resetsAt, usedPercent: 60.0, accountId: "test", now: df.date(from: "2026-09-22 15:00:00")!, calendar: calendar)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[0], 5.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 20.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[2], 35.0)
+
+        // Wednesday Day 4 (index 3): no usage, stays 60%
+        tracker.record(resetsAt: resetsAt, usedPercent: 60.0, accountId: "test", now: df.date(from: "2026-09-23 10:00:00")!, calendar: calendar)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[0], 5.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 20.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[2], 35.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[3], 0.0)
+
+        // Thursday Day 5 (index 4): reaches 80% (+20%)
+        tracker.record(resetsAt: resetsAt, usedPercent: 80.0, accountId: "test", now: df.date(from: "2026-09-24 11:00:00")!, calendar: calendar)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[0], 5.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 20.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[2], 35.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[3], 0.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[4], 20.0)
+
+        // Friday Day 6 (index 5): reaches 90% (+10%)
+        tracker.record(resetsAt: resetsAt, usedPercent: 90.0, accountId: "test", now: df.date(from: "2026-09-25 16:00:00")!, calendar: calendar)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[0], 5.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 20.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[2], 35.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[3], 0.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[4], 20.0)
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[5], 10.0)
+    }
+
+    func testMidCycleWednesdayInitializationRestoresKnownBreakdown() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Seoul")!
+        let df = DateFormatter()
+        df.timeZone = calendar.timeZone
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_mid_cycle_wed")
+        let wed = df.date(from: "2026-09-23 10:00:00")!
+        tracker.record(resetsAt: 1790494868, usedPercent: 97.0, accountId: "00000000-0000-4000-8000-000000000001", now: wed, calendar: calendar)
+
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[0], 0.0, "Sunday usage should be 0.0")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 92.0, "Monday usage should be 92.0")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[2], 5.0, "Tuesday usage should be 5.0")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[3], 0.0, "Wednesday usage should be 0.0")
+        XCTAssertTrue(tracker.currentCycle?.offlineGapDays.contains(1) == true)
+        XCTAssertFalse(tracker.currentCycle?.offlineGapDays.contains(3) == true)
+    }
 }
+
 
