@@ -40,13 +40,13 @@ struct MenuBarSnapshotView: View {
         HStack(alignment: .center, spacing: 6) {
             ForEach(0..<columns.count, id: \.self) { colIndex in
                 let column = columns[colIndex]
-                VStack(alignment: .leading, spacing: isSingleItem ? 0 : -2) {
+                VStack(alignment: .leading, spacing: isSingleItem ? 0 : -3.0) {
                     ForEach(column) { item in
                         HStack(spacing: 3.5) {
                             Text(item.label)
-                                .font(.system(size: isSingleItem ? 13.0 : 9.5, weight: .semibold))
+                                .font(.system(size: isSingleItem ? 13.5 : 10.5, weight: .bold))
                             Text(item.summaryValue)
-                                .font(.system(size: isSingleItem ? 13.0 : 9.5, weight: .medium).monospacedDigit())
+                                .font(.system(size: isSingleItem ? 13.5 : 10.5, weight: .bold).monospacedDigit())
                         }
                     }
                 }
