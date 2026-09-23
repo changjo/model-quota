@@ -71,6 +71,7 @@ struct SettingsView: View {
                             HStack(spacing: 6) {
                                 Text("Label:").font(.caption).foregroundStyle(.secondary)
                                 TextField("Codex", text: $store.codexLabel)
+                                    .labelsHidden()
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 85)
                             }
@@ -90,6 +91,7 @@ struct SettingsView: View {
                             HStack(spacing: 6) {
                                 Text("Label:").font(.caption).foregroundStyle(.secondary)
                                 TextField("Gemini", text: $store.geminiLabel)
+                                    .labelsHidden()
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 85)
                             }
