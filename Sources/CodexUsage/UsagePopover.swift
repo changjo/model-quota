@@ -23,11 +23,11 @@ struct UsagePopover: View {
                     .resizable().frame(width: 32, height: 32)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Codex Usage").font(.headline)
+                    Text("Model Usage").font(.headline)
                     Text("Your available capacity").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if store.isRefreshing {
+                if store.isRefreshing || store.isGeminiRefreshing {
                     ProgressView().controlSize(.small)
                         .accessibilityLabel("Refreshing usage")
                 }
@@ -36,13 +36,13 @@ struct UsagePopover: View {
 
             ScrollView { details }
                 .scrollBounceBehavior(.basedOnSize)
-                .frame(maxHeight: 480)
+                .frame(maxHeight: 560)
                 .fixedSize(horizontal: false, vertical: true)
 
             Divider()
             HStack(spacing: 12) {
                 Button { store.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
-                    .disabled(store.isRefreshing || store.isReconfiguring)
+                    .disabled(store.isRefreshing || store.isGeminiRefreshing || store.isReconfiguring)
                     .keyboardShortcut("r", modifiers: .command)
                     .help("Refresh usage (⌘R)")
                 Spacer()
@@ -58,12 +58,42 @@ struct UsagePopover: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .frame(width: 360)
+        .frame(width: 380)
         .background(.regularMaterial)
     }
 
     private var details: some View {
+        VStack(spacing: 16) {
+            codexSection
+
+            Divider().padding(.horizontal, 4)
+
+            GeminiQuotaView(
+                snapshot: store.geminiSnapshot,
+                error: store.geminiError,
+                label: store.geminiLabel,
+                lastUpdated: store.geminiLastUpdated,
+                isRefreshing: store.isGeminiRefreshing
+            )
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 16)
+    }
+
+    private var codexSection: some View {
         VStack(spacing: 12) {
+            HStack {
+                Label(store.codexLabel, systemImage: "chevron.left.forwardslash.chevron.right")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Spacer()
+                if store.isRefreshing {
+                    ProgressView().controlSize(.small)
+                        .accessibilityLabel("Refreshing \(store.codexLabel) usage")
+                }
+            }
+            .padding(.horizontal, 2)
+
             if let error = store.error {
                 statusMessage(error.localizedDescription,
                               detail: (error.recoverySuggestion ?? "") +
@@ -84,7 +114,7 @@ struct UsagePopover: View {
                     }
                     .background(.background, in: RoundedRectangle(cornerRadius: 10))
                 } else {
-                    statusMessage("No usage limits available", detail: "Codex hasn't reported a usage window for this account.", symbol: "chart.bar")
+                    statusMessage("No usage limits available", detail: "\(store.codexLabel) hasn't reported a usage window for this account.", symbol: "chart.bar")
                 }
                 if snapshot.ordinaryUsageAllowed == false || snapshot.bucket?.spendControlReached == true {
                     statusMessage("Usage is restricted", detail: "Your account currently has a usage restriction.", symbol: "pause.circle", warning: true)
@@ -103,7 +133,7 @@ struct UsagePopover: View {
                     .background(.background, in: RoundedRectangle(cornerRadius: 10))
                 }
             } else if store.error == nil {
-                statusMessage("Checking your usage…", detail: "Connecting to your Codex CLI account.", symbol: "chart.bar")
+                statusMessage("Checking \(store.codexLabel) usage…", detail: "Connecting to your Codex CLI account.", symbol: "chart.bar")
             }
 
             if let updated = store.lastUpdated {
@@ -115,10 +145,9 @@ struct UsagePopover: View {
                     Text(store.error == nil ? "Every minute" : "Retrying automatically")
                 }
                 .font(.caption2).foregroundStyle(.secondary)
+                .padding(.horizontal, 2)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
     }
 
     private func detailRow(_ title: String, value: String) -> some View {
