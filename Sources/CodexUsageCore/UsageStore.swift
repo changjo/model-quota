@@ -13,13 +13,37 @@ public final class UsageStore: ObservableObject {
     @Published public private(set) var customPath: String
     @Published private var running = false
 
+    // Gemini state
+    @Published public private(set) var geminiSnapshot: GeminiUsageSnapshot?
+    @Published public private(set) var geminiLastUpdated: Date?
+    @Published public private(set) var geminiError: UsageError?
+    @Published public private(set) var isGeminiRefreshing = false
+    @Published public private(set) var agyCustomPath: String
+
+    // Customization & visibility preferences
+    @Published public var showCodexInMenuBar: Bool {
+        didSet { defaults.set(showCodexInMenuBar, forKey: "menuBarShowCodex") }
+    }
+    @Published public var showGeminiInMenuBar: Bool {
+        didSet { defaults.set(showGeminiInMenuBar, forKey: "menuBarShowGemini") }
+    }
+    @Published public var codexLabel: String {
+        didSet { defaults.set(codexLabel, forKey: "serviceLabelCodex") }
+    }
+    @Published public var geminiLabel: String {
+        didSet { defaults.set(geminiLabel, forKey: "serviceLabelGemini") }
+    }
+
     public let weeklyTracker: WeeklyUsageTracker
 
     private let client: AppServerConnection
+    private let geminiClient: GeminiUsageService
     private let defaults: UserDefaults
     private let locate: (String) throws -> URL
     private var refreshTask: Task<Void, Never>?
+    private var geminiRefreshTask: Task<Void, Never>?
     private var scheduled: Task<Void, Never>?
+    private var geminiScheduled: Task<Void, Never>?
     private var cleanup: Task<Void, Never>?
     private var epoch = UUID()
     private var lifecycleRevision = 0
@@ -28,14 +52,26 @@ public final class UsageStore: ObservableObject {
     private var needsRefresh = false
     private var failures = 0
 
-    public init(client: AppServerConnection? = nil, defaults: UserDefaults = .standard,
+    public init(client: AppServerConnection? = nil,
+                geminiClient: GeminiUsageService? = nil,
+                defaults: UserDefaults = .standard,
                 weeklyTracker: WeeklyUsageTracker? = nil,
                 locate: @escaping (String) throws -> URL = { try ExecutableLocator.resolve(customPath: $0) }) {
+        let codexPath = defaults.string(forKey: "codexExecutablePath") ?? ""
+        let agyPath = defaults.string(forKey: "agyExecutablePath") ?? ""
         self.client = client ?? CodexAppServerClient()
+        self.geminiClient = geminiClient ?? GeminiAgyClient(customPath: agyPath)
         self.defaults = defaults
         self.weeklyTracker = weeklyTracker ?? WeeklyUsageTracker(userDefaults: defaults)
         self.locate = locate
-        self.customPath = defaults.string(forKey: "codexExecutablePath") ?? ""
+        self.customPath = codexPath
+        self.agyCustomPath = agyPath
+
+        self.showCodexInMenuBar = defaults.object(forKey: "menuBarShowCodex") as? Bool ?? true
+        self.showGeminiInMenuBar = defaults.object(forKey: "menuBarShowGemini") as? Bool ?? true
+        self.codexLabel = defaults.string(forKey: "serviceLabelCodex") ?? "Codex"
+        self.geminiLabel = defaults.string(forKey: "serviceLabelGemini") ?? "Gemini"
+
         self.client.onNotification = { [weak self] event in self?.notified(event) }
         self.client.onDisconnect = { [weak self] error in
             guard let self, self.running else { return }
@@ -50,6 +86,63 @@ public final class UsageStore: ObservableObject {
         return snapshot?.menuBarTitle ?? (isRefreshing ? "Codex …" : "Codex ?")
     }
 
+    public var menuBarItems: [ProviderUsageItem] {
+        var items: [ProviderUsageItem] = []
+
+        if showCodexInMenuBar {
+            let val: String
+            if isRefreshing {
+                val = "…"
+            } else if error != nil {
+                val = "?"
+            } else if let snapshot {
+                let quotas = snapshot.quotas.map { "\($0.remainingPercent)%" }
+                val = quotas.isEmpty ? "?" : quotas.joined(separator: " / ")
+            } else {
+                val = "?"
+            }
+            items.append(ProviderUsageItem(
+                id: "codex",
+                label: codexLabel,
+                summaryValue: val,
+                isRefreshing: isRefreshing,
+                hasError: error != nil
+            ))
+        }
+
+        if showGeminiInMenuBar {
+            let val: String
+            if isGeminiRefreshing {
+                val = "…"
+            } else if geminiError != nil {
+                val = "?"
+            } else if let snap = geminiSnapshot {
+                val = "\(snap.primaryRemainingPercent)%"
+            } else {
+                val = "…"
+            }
+            items.append(ProviderUsageItem(
+                id: "gemini",
+                label: geminiLabel,
+                summaryValue: val,
+                isRefreshing: isGeminiRefreshing,
+                hasError: geminiError != nil
+            ))
+        }
+
+        if items.isEmpty {
+            items.append(ProviderUsageItem(
+                id: "codex",
+                label: codexLabel,
+                summaryValue: snapshot != nil ? (snapshot!.quotas.map { "\($0.remainingPercent)%" }.joined(separator: " / ")) : (isRefreshing ? "…" : "?"),
+                isRefreshing: isRefreshing,
+                hasError: error != nil
+            ))
+        }
+
+        return items
+    }
+
     public func start() {
         guard !running else { return }
         lifecycleRevision += 1
@@ -58,6 +151,11 @@ public final class UsageStore: ObservableObject {
     }
 
     public func refresh() {
+        refreshCodex()
+        refreshGemini()
+    }
+
+    public func refreshCodex() {
         guard running, refreshTask == nil else { return }
         scheduled?.cancel()
         scheduled = nil
@@ -113,10 +211,15 @@ public final class UsageStore: ObservableObject {
         epoch = UUID()
         scheduled?.cancel()
         scheduled = nil
+        geminiScheduled?.cancel()
+        geminiScheduled = nil
         let previous = refreshTask
         refreshTask = nil
         previous?.cancel()
+        geminiRefreshTask?.cancel()
+        geminiRefreshTask = nil
         isRefreshing = false
+        isGeminiRefreshing = false
         snapshot = nil
         lastUpdated = nil
         needsRefresh = false
@@ -128,6 +231,49 @@ public final class UsageStore: ObservableObject {
         cleanup = operation
         await operation.value
         cleanup = nil
+    }
+
+    public func refreshGemini() {
+        guard running, geminiRefreshTask == nil else { return }
+        geminiScheduled?.cancel()
+        geminiScheduled = nil
+        isGeminiRefreshing = true
+        geminiRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let snap = try await geminiClient.readUsage()
+                guard !Task.isCancelled else { return }
+                self.geminiSnapshot = snap
+                self.geminiLastUpdated = Date()
+                self.geminiError = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.geminiError = (error as? UsageError) ?? .requestFailed
+            }
+            self.isGeminiRefreshing = false
+            self.geminiRefreshTask = nil
+            self.scheduleGemini(after: 60)
+        }
+    }
+
+    private func scheduleGemini(after seconds: TimeInterval) {
+        guard running else { return }
+        geminiScheduled?.cancel()
+        geminiScheduled = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+            catch { return }
+            self?.refreshGemini()
+        }
+    }
+
+    public func applyAgyCustomPath(_ path: String) async {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        agyCustomPath = trimmed
+        defaults.set(trimmed, forKey: "agyExecutablePath")
+        if let agyClient = geminiClient as? GeminiAgyClient {
+            agyClient.customPath = trimmed
+        }
+        refreshGemini()
     }
 
     public func applyCustomPath(_ path: String) async {
