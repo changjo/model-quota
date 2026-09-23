@@ -23,7 +23,7 @@ struct UsagePopover: View {
                     .resizable().frame(width: 32, height: 32)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Model Usage").font(.headline)
+                    Text("Model Quota").font(.headline)
                     Text("Your available capacity").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -51,7 +51,7 @@ struct UsagePopover: View {
                     .help("Open Settings (⌘,)")
                 Button("Quit") { NSApp.terminate(nil) }
                     .keyboardShortcut("q", modifiers: .command)
-                    .help("Quit Codex Usage (⌘Q)")
+                    .help("Quit Model Quota (⌘Q)")
             }
             .buttonStyle(.borderless)
             .controlSize(.small)

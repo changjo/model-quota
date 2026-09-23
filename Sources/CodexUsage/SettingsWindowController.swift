@@ -17,7 +17,7 @@ final class SettingsWindowController: NSWindowController {
                 .environment(\.locale, Locale(identifier: "en"))
             let controller = NSHostingController(rootView: content)
             let settingsWindow = NSWindow(contentViewController: controller)
-            settingsWindow.title = "Codex Usage Settings"
+            settingsWindow.title = "Model Quota Settings"
             settingsWindow.styleMask = [.titled, .closable]
             settingsWindow.isReleasedWhenClosed = false
             settingsWindow.setContentSize(NSSize(width: 520, height: 600))

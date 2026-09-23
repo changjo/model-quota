@@ -8,10 +8,10 @@ binary_dir="$(swift build --disable-sandbox -c release --show-bin-path)"
 mkdir -p "$project_dir/dist"
 staging_dir="$(mktemp -d "$project_dir/dist/.app-build.XXXXXX")"
 trap 'rm -rf "$staging_dir"' EXIT
-app_dir="$staging_dir/Codex Usage.app"
-destination="$project_dir/dist/Codex Usage.app"
+app_dir="$staging_dir/Model Quota.app"
+destination="$project_dir/dist/Model Quota.app"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
-cp "$binary_dir/CodexUsage" "$app_dir/Contents/MacOS/CodexUsage"
+cp "$binary_dir/ModelQuota" "$app_dir/Contents/MacOS/ModelQuota"
 cp Resources/Info.plist "$app_dir/Contents/Info.plist"
 cp LICENSE "$app_dir/Contents/Resources/LICENSE"
 xcrun actool Resources/AppIcon.icon --compile "$app_dir/Contents/Resources" \

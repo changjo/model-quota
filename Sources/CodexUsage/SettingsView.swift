@@ -55,7 +55,7 @@ struct SettingsView: View {
                         }
                     }
                 } header: { Text("General") }
-                footer: { Text("Automatically open Codex Usage when you sign in to your Mac.") }
+                footer: { Text("Automatically open Model Quota when you sign in to your Mac.") }
 
                 Section {
                     VStack(alignment: .leading, spacing: 14) {

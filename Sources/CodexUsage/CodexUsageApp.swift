@@ -21,7 +21,7 @@ struct CodexUsageApp: App {
             MenuBarGridView(items: store.menuBarItems)
                 .accessibilityLabel(
                     store.menuBarItems.isEmpty
-                        ? "Codex usage"
+                        ? "Model Quota"
                         : "Usage: \(store.menuBarItems.map(\.displayText).joined(separator: ", "))"
                 )
         }

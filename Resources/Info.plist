@@ -2,10 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleExecutable</key><string>CodexUsage</string>
-    <key>CFBundleIdentifier</key><string>dev.changjo.CodexUsage</string>
-    <key>CFBundleName</key><string>Codex Usage</string>
-    <key>CFBundleDisplayName</key><string>Codex Usage</string>
+    <key>CFBundleExecutable</key><string>ModelQuota</string>
+    <key>CFBundleIdentifier</key><string>dev.changjo.ModelQuota</string>
+    <key>CFBundleName</key><string>Model Quota</string>
+    <key>CFBundleDisplayName</key><string>Model Quota</string>
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleLocalizations</key><array><string>en</string></array>
     <key>CFBundlePackageType</key><string>APPL</string>

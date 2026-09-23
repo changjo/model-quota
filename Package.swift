@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "CodexUsage",
+    name: "ModelQuota",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "CodexUsage", targets: ["CodexUsage"])],
+    products: [.executable(name: "ModelQuota", targets: ["CodexUsage"])],
     targets: [
         .target(name: "CodexUsageCore"),
         .executableTarget(name: "CodexUsage", dependencies: ["CodexUsageCore"]),

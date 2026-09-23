@@ -1,26 +1,26 @@
-# Codex Usage
+# Model Quota
 
-A lightweight native macOS menu bar app that shows your remaining Codex usage through the official Codex CLI App Server.
+A lightweight native macOS menu bar app that shows your remaining AI model quotas (Codex, Gemini, and more).
 
-This is an independent project, not an official OpenAI app or an OpenAI-endorsed product.
+This is an independent project, not an official OpenAI or Google product.
 
-The menu bar shows remaining percentages. Click it for usage details. The English interface uses native macOS controls, system fonts, and light and dark appearances.
+The menu bar shows remaining percentages in a clean 2-row grid. Click it for quota details. The interface uses native macOS controls, system fonts, and light and dark appearances.
 
-- Menu bar: `Codex 74% / 38%`, or a single percentage when only one usage window is available.
-- Popover: remaining and used percentages, reset times and countdowns, additional credits, available usage resets, and the last update time.
-- Manual refresh, launch at login, configurable Codex CLI path, and quit controls.
-- Refreshes at startup, on usage notifications, and every 60 seconds. Failed requests retry with increasing delays, up to five minutes.
+- Menu bar: left-aligned labels (`Codex`, `Gemini`) with right-aligned percentages (`74%`, `81%`).
+- Popover: dual provider details, remaining and used percentages, reset times and countdowns, weekly mini-histogram.
+- Manual refresh, launch at login, configurable executable paths, and quit controls.
+- Refreshes at startup and in background with zero credentials leaked.
 
 ## Install a downloaded app
 
 **The app is not notarized by Apple or signed with a Developer ID certificate.** macOS may block the first launch. Continue only if you trust this project and the download source.
 
-1. Extract the download and move **Codex Usage.app** to **Applications**.
+1. Extract the download and move **Model Quota.app** to **Applications**.
 2. Open the app once. If macOS says it cannot verify the developer or check the app, dismiss the alert.
 3. Open **System Settings → Privacy & Security** and select **Open Anyway** for this app in the Security section.
 4. Confirm with **Open** and authenticate if macOS asks you to.
 
-You can then open the app normally. It appears in the menu bar, without a Dock icon. Usage reads require the official Codex CLI to be installed and signed in with `codex login` in Terminal.
+You can then open the app normally. It appears in the menu bar, without a Dock icon. Usage reads use the local CLI sessions (`codex` and `agy`).
 
 This exception does not notarize the app. If **Open Anyway** is unavailable, or macOS reports damage or malware, stop and contact the download provider or your Mac administrator. See [Apple’s official instructions](https://support.apple.com/en-us/102445).
 
@@ -28,13 +28,13 @@ The [installation guide](INSTALL.md) is copied to `dist/INSTALL.md` during build
 
 ## Build and run
 
-The app requires macOS 14 or later and the official Codex CLI. App bundle builds have been verified with Xcode 27, which compiles the Icon Composer assets. The Swift sources use Swift 5.9 language mode and target macOS 14.
+The app requires macOS 14 or later. App bundle builds have been verified with Xcode 27, which compiles the Icon Composer assets. The Swift sources use Swift 5.9 language mode and target macOS 14.
 
-The app has no external Swift package, Electron, Node, or Python runtime dependencies. Sign in using `codex login` in Terminal first.
+The app has no external Swift package, Electron, Node, or Python runtime dependencies.
 
 ```sh
 ./scripts/build-app.sh
-open "dist/Codex Usage.app"
+open "dist/Model Quota.app"
 ```
 
 The build script packages a release binary for the current Mac architecture and applies a local ad-hoc signature. It does not provide Developer ID signing, notarization, or a universal binary.
@@ -45,17 +45,15 @@ To build a release archive with the app, installation guide, and license:
 ./scripts/package-app.sh
 ```
 
-This creates `dist/Codex-Usage-0.1.0-macos-arm64.zip` on Apple Silicon and a matching `.sha256` checksum file. The filename uses the actual bundle version and binary architecture. The script verifies the extracted archive before producing the checksum. Upload only the intended ZIP and checksum, not the entire `dist` directory.
+This creates `dist/Model-Quota-0.1.0-macos-arm64.zip` on Apple Silicon and a matching `.sha256` checksum file. The filename uses the actual bundle version and binary architecture. The script verifies the extracted archive before producing the checksum. Upload only the intended ZIP and checksum, not the entire `dist` directory.
 
 ### Compatibility and validation
 
-The current binary has been tested on Apple Silicon with macOS 27 and the native Codex CLI 0.155.0 installed through Homebrew. macOS 14 is the deployment target; macOS 14, 15, and 26 runtime behavior and Intel builds have not been verified. npm wrappers that require `node` from a shell-specific PATH are also unverified and may fail when launched from Finder or at login; use a native Codex executable for this release.
-
-Long-running use, sleep/wake recovery, and an actual logout/login cycle still need real-world validation. Source builds and local checks do not verify the first-launch experience of a quarantined download on another Mac.
+The current binary has been tested on Apple Silicon with macOS 27, native Codex CLI, and Antigravity (`agy`). macOS 14 is the deployment target.
 
 ## Settings
 
-Open **Settings…** from the popover or press **⌘,** while the app is active. Opening an already-running app from Finder also shows Settings. The app version appears below the Codex Usage name and is read from the installed bundle.
+Open **Settings…** from the popover or press **⌘,** while the app is active. Opening an already-running app from Finder also shows Settings. The app version appears below the Model Quota name and is read from the installed bundle.
 
 Leave the executable path empty to search absolute directories in `PATH` and known installation locations. If detection fails, select the `codex` executable and click **Apply**. Invalid paths are rejected without saving them or interrupting the existing connection. **Use Automatic Detection** restores the default search.
 
