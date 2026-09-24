@@ -96,8 +96,8 @@ struct UsagePopover: View {
             .padding(.horizontal, 2)
 
             if let error = store.error {
-                statusMessage(error.localizedDescription,
-                              detail: (error.recoverySuggestion ?? "") +
+                statusMessage(error.errorDescription(for: store.codexLabel),
+                              detail: error.recoverySuggestion(for: store.codexLabel) +
                                 (store.snapshot == nil ? "" : " Showing the last known usage."),
                               symbol: "exclamationmark.triangle", warning: true)
             }

@@ -117,7 +117,7 @@ struct SettingsView: View {
                         if store.isRefreshing || store.isReconfiguring {
                             HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Connecting…") }
                         } else if let error = store.error {
-                            Label(error.localizedDescription, systemImage: "exclamationmark.circle")
+                            Label(error.errorDescription(for: store.codexLabel), systemImage: "exclamationmark.circle")
                                 .foregroundStyle(.orange)
                         } else if store.snapshot != nil {
                             Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
@@ -126,7 +126,7 @@ struct SettingsView: View {
                         }
                     }
                     if let error = store.error {
-                        Text(error.recoverySuggestion ?? "").font(.caption)
+                        Text(error.recoverySuggestion(for: store.codexLabel)).font(.caption)
                             .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     HStack(spacing: 12) {
@@ -179,13 +179,17 @@ struct SettingsView: View {
                         if store.isGeminiRefreshing {
                             HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Querying…") }
                         } else if let error = store.geminiError {
-                            Label(error.localizedDescription, systemImage: "exclamationmark.circle")
+                            Label(error.errorDescription(for: store.geminiLabel), systemImage: "exclamationmark.circle")
                                 .foregroundStyle(.orange)
                         } else if store.geminiSnapshot != nil {
                             Label("Connected (agy)", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                         } else {
                             Text("Ready").foregroundStyle(.secondary)
                         }
+                    }
+                    if let error = store.geminiError {
+                        Text(error.recoverySuggestion(for: store.geminiLabel)).font(.caption)
+                            .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     HStack(spacing: 12) {
                         Text("Refresh")

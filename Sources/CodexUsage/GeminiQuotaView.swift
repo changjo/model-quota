@@ -24,13 +24,20 @@ struct GeminiQuotaView: View {
             .padding(.horizontal, 2)
 
             if let error = error {
+                let errDesc = (error as? UsageError)?.errorDescription(for: label) ?? error.localizedDescription
+                let suggestion = (error as? UsageError)?.recoverySuggestion(for: label) ?? (error as? LocalizedError)?.recoverySuggestion ?? ""
+                let detail = suggestion.isEmpty
+                    ? (snapshot == nil ? "" : "Showing the last known usage.")
+                    : suggestion + (snapshot == nil ? "" : " Showing the last known usage.")
                 statusCard(
-                    title: "\(label) Unavailable",
-                    detail: error.localizedDescription,
+                    title: errDesc,
+                    detail: detail,
                     symbol: "exclamationmark.triangle",
                     warning: true
                 )
-            } else if let snapshot = snapshot {
+            }
+
+            if let snapshot = snapshot {
                 VStack(spacing: 10) {
                     ForEach(snapshot.groups) { group in
                         VStack(alignment: .leading, spacing: 8) {
@@ -55,7 +62,7 @@ struct GeminiQuotaView: View {
                         }
                     }
                 }
-            } else {
+            } else if error == nil {
                 statusCard(
                     title: "Checking \(label) usage…",
                     detail: "Querying agy CLI for quota limits.",
@@ -86,8 +93,10 @@ struct GeminiQuotaView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.subheadline.weight(.medium))
-                Text(detail).font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if !detail.isEmpty {
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 0)
         }
