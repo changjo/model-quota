@@ -25,9 +25,12 @@ public final class WeeklyUsageTracker: ObservableObject {
         self.currentCycle = loadInitialCycle()
     }
 
+    public static func isSameCycle(resetsAtA: Int64, resetsAtB: Int64) -> Bool {
+        abs(resetsAtA - resetsAtB) < 86400
+    }
+
     private func loadInitialCycle() -> WeeklyUsageCycle? {
         var cycleCandidate: WeeklyUsageCycle?
-        var legacyCandidate: WeeklyUsageCycle?
 
         // 1. Load from primary userDefaults
         if let data = userDefaults.data(forKey: storageKey),
@@ -35,17 +38,7 @@ public final class WeeklyUsageTracker: ObservableObject {
             cycleCandidate = decoded
         }
 
-        // 2. Load from legacy suites
-        for suite in legacySuiteNames {
-            if let legacyDefaults = UserDefaults(suiteName: suite),
-               let legacyData = legacyDefaults.data(forKey: storageKey),
-               let decoded = try? JSONDecoder().decode(WeeklyUsageCycle.self, from: legacyData) {
-                legacyCandidate = decoded
-                break
-            }
-        }
-
-        // 3. Load from durable backup file if available
+        // 2. Load from durable backup file if available
         var backupCandidate: WeeklyUsageCycle?
         if let backupDirectory {
             let fileURL = backupDirectory.appendingPathComponent("\(storageKey).json")
@@ -55,20 +48,34 @@ public final class WeeklyUsageTracker: ObservableObject {
             }
         }
 
-        let priorSource = legacyCandidate ?? backupCandidate
-
-        var resolvedCycle: WeeklyUsageCycle?
-        if var current = cycleCandidate {
-            if let prior = priorSource, prior.resetsAt == current.resetsAt {
-                current = healCycle(corrupted: current, fromPrior: prior)
+        // 3. Load from legacy suites and immediately clean up legacy storage
+        var legacyCandidate: WeeklyUsageCycle?
+        for suite in legacySuiteNames {
+            if let legacyDefaults = UserDefaults(suiteName: suite),
+               let legacyData = legacyDefaults.data(forKey: storageKey),
+               let decoded = try? JSONDecoder().decode(WeeklyUsageCycle.self, from: legacyData) {
+                legacyCandidate = decoded
+                legacyDefaults.removeObject(forKey: storageKey)
+                legacyDefaults.synchronize()
+                break
             }
-            resolvedCycle = current
-        } else if let prior = priorSource {
-            resolvedCycle = prior
+        }
+
+        var baseCycle = cycleCandidate ?? backupCandidate ?? legacyCandidate
+
+        // If primary/backup cycle was loaded, heal it from legacy candidate if available
+        if var current = cycleCandidate ?? backupCandidate, let legacy = legacyCandidate {
+            current = healCycle(corrupted: current, fromPrior: legacy)
+            baseCycle = current
+        }
+
+        // Heal against history if available
+        if let cycle = baseCycle {
+            baseCycle = healFromHistory(cycle: cycle)
         }
 
         // Apply legacy self-healing rule for historical resetsAt 1790494868
-        if var cycle = resolvedCycle {
+        if var cycle = baseCycle {
             if cycle.resetsAt == 1790494868,
                cycle.dailyUsage.count >= 3,
                cycle.dailyUsage[1] == 0.0 {
@@ -96,7 +103,7 @@ public final class WeeklyUsageTracker: ObservableObject {
     }
 
     public func healCycle(corrupted: WeeklyUsageCycle, fromPrior prior: WeeklyUsageCycle) -> WeeklyUsageCycle {
-        guard corrupted.resetsAt == prior.resetsAt else { return corrupted }
+        guard Self.isSameCycle(resetsAtA: corrupted.resetsAt, resetsAtB: prior.resetsAt) else { return corrupted }
         var result = corrupted
         let maxCount = max(result.dailyUsage.count, prior.dailyUsage.count)
         while result.dailyUsage.count < maxCount { result.dailyUsage.append(0.0) }
@@ -117,6 +124,25 @@ public final class WeeklyUsageTracker: ObservableObject {
         return result
     }
 
+    public func healFromHistory(cycle: WeeklyUsageCycle) -> WeeklyUsageCycle {
+        guard let backupDirectory else { return cycle }
+        let historyURL = backupDirectory.appendingPathComponent("\(storageKey)_history.json")
+        guard let historyData = try? Data(contentsOf: historyURL),
+              let historyMap = try? JSONDecoder().decode([String: WeeklyUsageCycle].self, from: historyData) else {
+            return cycle
+        }
+
+        var healed = cycle
+        let matchingPriors = historyMap.values
+            .filter { Self.isSameCycle(resetsAtA: $0.resetsAt, resetsAtB: cycle.resetsAt) }
+            .sorted { $0.lastObservedAt > $1.lastObservedAt }
+
+        for prior in matchingPriors {
+            healed = healCycle(corrupted: healed, fromPrior: prior)
+        }
+        return healed
+    }
+
     public func record(snapshot: UsageSnapshot, now: Date = Date(), calendar: Calendar = .current) {
         guard let weeklyQuota = snapshot.quotas.first(where: { $0.durationMinutes == 10080 }),
               let resetsAt = weeklyQuota.window.resetsAt else {
@@ -134,7 +160,26 @@ public final class WeeklyUsageTracker: ObservableObject {
     ) {
         let cycleDurationSeconds: TimeInterval = 7 * 86400
         let resetDate = Date(timeIntervalSince1970: TimeInterval(resetsAt))
-        let cycleStart = resetDate.addingTimeInterval(-cycleDurationSeconds)
+
+        // If in-memory cycle is nil, attempt to restore from persistent storage before wiping
+        if currentCycle == nil {
+            currentCycle = loadInitialCycle()
+        }
+
+        let isDifferentAccount = accountId != nil && currentCycle?.accountId != nil && currentCycle?.accountId != accountId
+        let isDifferentCycle: Bool
+        if let current = currentCycle {
+            isDifferentCycle = !Self.isSameCycle(resetsAtA: current.resetsAt, resetsAtB: resetsAt)
+        } else {
+            isDifferentCycle = true
+        }
+
+        let cycleStart: Date
+        if let current = currentCycle, !isDifferentCycle {
+            cycleStart = current.cycleStart
+        } else {
+            cycleStart = resetDate.addingTimeInterval(-cycleDurationSeconds)
+        }
 
         let cycleStartDay = calendar.startOfDay(for: cycleStart)
         let nowDay = calendar.startOfDay(for: now)
@@ -145,14 +190,8 @@ public final class WeeklyUsageTracker: ObservableObject {
         let totalCalendarDays = max(7, resetDayOffset + (resetDate > resetDay ? 1 : 0))
         let currentDayIndex = min(totalCalendarDays - 1, max(0, calendarDayOffset))
 
-        // If in-memory cycle is nil, attempt to restore from persistent storage before wiping
-        if currentCycle == nil {
-            currentCycle = loadInitialCycle()
-        }
-
-        let isDifferentAccount = accountId != nil && currentCycle?.accountId != nil && currentCycle?.accountId != accountId
-        if currentCycle == nil || currentCycle?.resetsAt != resetsAt || isDifferentAccount {
-            // Check if backup history has this resetsAt before initializing blank
+        if isDifferentCycle || isDifferentAccount {
+            // Check if backup history or stored cycle has this cycle before initializing blank
             if let existing = findCycle(forResetsAt: resetsAt, accountId: accountId) {
                 self.currentCycle = existing
             } else {
@@ -172,6 +211,11 @@ public final class WeeklyUsageTracker: ObservableObject {
         }
 
         guard var cycle = currentCycle else { return }
+
+        // Keep resetsAt updated to latest server timestamp within the same cycle
+        if cycle.resetsAt != resetsAt {
+            cycle.resetsAt = resetsAt
+        }
 
         if cycle.accountId == nil, let accountId {
             cycle.accountId = accountId
@@ -193,6 +237,9 @@ public final class WeeklyUsageTracker: ObservableObject {
 
         cycle.lastObservedPercent = usedPercent
         cycle.lastObservedAt = now
+
+        // Check if cycle can be healed from history
+        cycle = healFromHistory(cycle: cycle)
 
         // Historical compatibility: guard for 1790494868
         if cycle.resetsAt == 1790494868,
@@ -218,7 +265,7 @@ public final class WeeklyUsageTracker: ObservableObject {
     }
 
     private func findCycle(forResetsAt resetsAt: Int64, accountId: String?) -> WeeklyUsageCycle? {
-        if let current = currentCycle, current.resetsAt == resetsAt {
+        if let current = currentCycle, Self.isSameCycle(resetsAtA: current.resetsAt, resetsAtB: resetsAt) {
             if accountId == nil || current.accountId == nil || current.accountId == accountId {
                 return current
             }
@@ -226,20 +273,9 @@ public final class WeeklyUsageTracker: ObservableObject {
 
         if let data = userDefaults.data(forKey: storageKey),
            let decoded = try? JSONDecoder().decode(WeeklyUsageCycle.self, from: data),
-           decoded.resetsAt == resetsAt {
+           Self.isSameCycle(resetsAtA: decoded.resetsAt, resetsAtB: resetsAt) {
             if accountId == nil || decoded.accountId == nil || decoded.accountId == accountId {
                 return decoded
-            }
-        }
-
-        for suite in legacySuiteNames {
-            if let legacyDefaults = UserDefaults(suiteName: suite),
-               let legacyData = legacyDefaults.data(forKey: storageKey),
-               let decoded = try? JSONDecoder().decode(WeeklyUsageCycle.self, from: legacyData),
-               decoded.resetsAt == resetsAt {
-                if accountId == nil || decoded.accountId == nil || decoded.accountId == accountId {
-                    return decoded
-                }
             }
         }
 
@@ -247,7 +283,7 @@ public final class WeeklyUsageTracker: ObservableObject {
             let fileURL = backupDirectory.appendingPathComponent("\(storageKey).json")
             if let fileData = try? Data(contentsOf: fileURL),
                let decoded = try? JSONDecoder().decode(WeeklyUsageCycle.self, from: fileData),
-               decoded.resetsAt == resetsAt {
+               Self.isSameCycle(resetsAtA: decoded.resetsAt, resetsAtB: resetsAt) {
                 if accountId == nil || decoded.accountId == nil || decoded.accountId == accountId {
                     return decoded
                 }
@@ -255,10 +291,13 @@ public final class WeeklyUsageTracker: ObservableObject {
 
             let historyURL = backupDirectory.appendingPathComponent("\(storageKey)_history.json")
             if let historyData = try? Data(contentsOf: historyURL),
-               let map = try? JSONDecoder().decode([String: WeeklyUsageCycle].self, from: historyData),
-               let saved = map[String(resetsAt)] {
-                if accountId == nil || saved.accountId == nil || saved.accountId == accountId {
-                    return saved
+               let map = try? JSONDecoder().decode([String: WeeklyUsageCycle].self, from: historyData) {
+                let matches = map.values.filter {
+                    Self.isSameCycle(resetsAtA: $0.resetsAt, resetsAtB: resetsAt) &&
+                    (accountId == nil || $0.accountId == nil || $0.accountId == accountId)
+                }
+                if let best = matches.max(by: { $0.lastObservedAt < $1.lastObservedAt }) {
+                    return best
                 }
             }
         }
@@ -292,6 +331,12 @@ public final class WeeklyUsageTracker: ObservableObject {
             if let existingData = try? Data(contentsOf: historyURL),
                let decoded = try? JSONDecoder().decode([String: WeeklyUsageCycle].self, from: existingData) {
                 historyMap = decoded
+            }
+            // Consolidate drifted entries for the same cycle to prevent duplicate clutter
+            for (key, existing) in historyMap {
+                if existing.resetsAt != cycle.resetsAt && Self.isSameCycle(resetsAtA: existing.resetsAt, resetsAtB: cycle.resetsAt) {
+                    historyMap.removeValue(forKey: key)
+                }
             }
             historyMap[String(cycle.resetsAt)] = cycle
             if let historyData = try? JSONEncoder().encode(historyMap) {

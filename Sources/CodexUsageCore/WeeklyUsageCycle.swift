@@ -1,8 +1,8 @@
 import Foundation
 
 public struct WeeklyUsageCycle: Codable, Equatable, Sendable {
-    public let resetsAt: Int64
-    public let cycleStart: Date
+    public var resetsAt: Int64
+    public var cycleStart: Date
     public var lastObservedPercent: Double
     public var lastObservedAt: Date
     public var dailyUsage: [Double]

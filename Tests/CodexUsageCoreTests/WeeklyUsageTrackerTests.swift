@@ -394,6 +394,129 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         XCTAssertEqual(healed.dailyUsage[1], 15.0, "Day 2 should be restored to 15.0")
         XCTAssertEqual(healed.dailyUsage[2], 5.0, "Day 3 should have remaining 5.0 (30 - 10 - 15)")
     }
+
+    func testResetsAtJitterPreservesDailyUsageAndDoesNotMergeDays() {
+        let suite = "dev.changjo.ModelQuota.test.jitter.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, legacySuiteNames: [])
+
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        df.timeZone = TimeZone.current
+        var calendar = Calendar.current
+        calendar.timeZone = TimeZone.current
+
+        // Day 0 (Wednesday Sep 23 18:35:55) - 2% usage
+        let wednesday = df.date(from: "2026-09-23 20:00:00")!
+        tracker.record(resetsAt: 1790760955, usedPercent: 2.0, accountId: "acc", now: wednesday, calendar: calendar)
+
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[0], 2.0)
+        XCTAssertEqual(tracker.currentCycle?.lastObservedPercent, 2.0)
+
+        // Day 1 (Thursday Sep 24 20:00:00) - resetsAt drifts by 3s (1790760952), usage reaches 35% (+33%)
+        let thursday = df.date(from: "2026-09-24 20:00:00")!
+        tracker.record(resetsAt: 1790760952, usedPercent: 35.0, accountId: "acc", now: thursday, calendar: calendar)
+
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[0], 2.0, "Wednesday usage must remain 2.0")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 33.0, "Thursday usage must be 33.0")
+        XCTAssertEqual(tracker.currentCycle?.lastObservedPercent, 35.0)
+
+        // Day 2 (Friday Sep 25 21:00:00) - resetsAt drifts by 1s (1790760951), usage reaches 47% (+12%)
+        let friday = df.date(from: "2026-09-25 21:00:00")!
+        tracker.record(resetsAt: 1790760951, usedPercent: 47.0, accountId: "acc", now: friday, calendar: calendar)
+
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[0], 2.0, "Wednesday usage must remain 2.0")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 33.0, "Thursday usage must remain 33.0 and NOT be wiped")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[2], 12.0, "Friday usage must be 12.0 and NOT 45.0")
+        XCTAssertEqual(tracker.currentCycle?.lastObservedPercent, 47.0)
+    }
+
+    func testHealingFromHistoryRestoresAbsorbedThursdayUsage() throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let suite = "dev.changjo.ModelQuota.test.healHistory.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let storageKey = "codex_usage_weekly_tracker"
+
+        // 1. Setup history with entry 1790760952 having Thursday 33%
+        let historyURL = tempDir.appendingPathComponent("\(storageKey)_history.json")
+        let historyJson = """
+        {
+            "1790760952": {
+                "resetsAt": 1790760952,
+                "cycleStart": 811848952,
+                "lastObservedAt": 811981344,
+                "accountId": "acc",
+                "dailyUsage": [0, 33, 2, 0, 0, 0, 0, 0],
+                "lastObservedPercent": 35,
+                "offlineGapDays": [1, 2]
+            }
+        }
+        """
+        try historyJson.data(using: .utf8)!.write(to: historyURL)
+
+        // 2. Setup primary defaults with corrupted 1790760951 having [2, 0, 45, ...]
+        let corruptedJson = """
+        {
+            "resetsAt": 1790760951,
+            "cycleStart": 811848951,
+            "lastObservedAt": 812032558,
+            "accountId": "acc",
+            "dailyUsage": [2, 0, 45, 0, 0, 0, 0, 0],
+            "lastObservedPercent": 47,
+            "offlineGapDays": [0, 2]
+        }
+        """
+        defaults.set(corruptedJson.data(using: .utf8)!, forKey: storageKey)
+
+        // 3. Initialize tracker - should auto-heal from history
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: storageKey, backupDirectory: tempDir, legacySuiteNames: [])
+
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[0], 2.0, "Wednesday should be 2.0")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 33.0, "Thursday should be healed to 33.0")
+        XCTAssertEqual(tracker.currentCycle?.dailyUsage[2], 12.0, "Friday should be healed to 12.0 (45 - 33)")
+        XCTAssertEqual(tracker.currentCycle?.lastObservedPercent, 47.0)
+    }
+
+    func testLegacySuiteCleanupPreventsZombieResurrection() {
+        let legacySuite = "dev.changjo.CodexUsage.test.cleanup.\(UUID().uuidString)"
+        let primarySuite = "dev.changjo.ModelQuota.test.cleanup.\(UUID().uuidString)"
+
+        let legacyDefaults = UserDefaults(suiteName: legacySuite)!
+        let primaryDefaults = UserDefaults(suiteName: primarySuite)!
+        defer {
+            legacyDefaults.removePersistentDomain(forName: legacySuite)
+            primaryDefaults.removePersistentDomain(forName: primarySuite)
+        }
+
+        let storageKey = "codex_usage_weekly_tracker"
+        let legacyJson = """
+        {
+            "resetsAt": 1790760951,
+            "cycleStart": 811848951,
+            "lastObservedAt": 811861122,
+            "accountId": "acc",
+            "dailyUsage": [2, 0, 0, 0, 0, 0, 0, 0],
+            "lastObservedPercent": 2,
+            "offlineGapDays": [0]
+        }
+        """
+        legacyDefaults.set(legacyJson.data(using: .utf8)!, forKey: storageKey)
+
+        let tracker = WeeklyUsageTracker(userDefaults: primaryDefaults, storageKey: storageKey, legacySuiteNames: [legacySuite])
+
+        // Legacy key should be removed from legacy suite after migration
+        XCTAssertNil(legacyDefaults.data(forKey: storageKey), "Legacy suite key must be deleted after migration")
+        XCTAssertNotNil(tracker.currentCycle, "Primary tracker must hold migrated cycle")
+        XCTAssertEqual(tracker.currentCycle?.lastObservedPercent, 2.0)
+    }
 }
+
 
 
