@@ -32,6 +32,40 @@ final class RenderConnection: AppServerConnection {
     func stop() async { isConnected = false }
 }
 
+@MainActor
+final class RenderGeminiClient: GeminiUsageService {
+    func readUsage() async throws -> GeminiUsageSnapshot {
+        return GeminiUsageSnapshot(
+            groups: [
+                GeminiUsageSnapshot.ModelGroup(
+                    name: "Gemini Models",
+                    description: nil,
+                    buckets: [
+                        .init(id: "gemini-5h", name: "Pro Session Limit", description: nil, window: "5h", remainingFraction: 0.82, resetTime: Date().addingTimeInterval(3 * 3600)),
+                        .init(id: "gemini-weekly", name: "Weekly Limit", description: nil, window: "weekly", remainingFraction: 0.58, resetTime: Date().addingTimeInterval(4 * 86400))
+                    ]
+                )
+            ]
+        )
+    }
+}
+
+@MainActor
+final class RenderClaudeClient: ClaudeUsageService {
+    func readUsage() async throws -> ClaudeUsageSnapshot {
+        return ClaudeUsageSnapshot(
+            subscriptionType: "Claude Pro",
+            rateLimitsAvailable: true,
+            fiveHour: .init(utilization: 28.0, resetsAt: Date().addingTimeInterval(2 * 3600 + 45 * 60)),
+            sevenDay: .init(utilization: 64.0, resetsAt: Date().addingTimeInterval(3 * 86400 + 12 * 3600)),
+            breakdownRows: [
+                .init(key: "claude-3-7-sonnet", displayName: "Claude 3.7 Sonnet", percent: 58.0),
+                .init(key: "claude-3-5-haiku", displayName: "Claude 3.5 Haiku", percent: 6.0)
+            ]
+        )
+    }
+}
+
 @main
 struct RenderUI {
     @MainActor
@@ -61,10 +95,15 @@ struct RenderUI {
             let client = RenderConnection(snapshot, failure: failure)
             let suite = "dev.changjo.CodexUsage.render.\(UUID().uuidString)"
             let defaults = UserDefaults(suiteName: suite)!
-            let store = UsageStore(client: client, defaults: defaults,
-                                   locate: { _ in URL(fileURLWithPath: "/opt/homebrew/bin/codex") })
+            let store = UsageStore(
+                client: client,
+                geminiClient: RenderGeminiClient(),
+                claudeClient: RenderClaudeClient(),
+                defaults: defaults,
+                locate: { _ in URL(fileURLWithPath: "/opt/homebrew/bin/codex") }
+            )
             store.start()
-            for _ in 0..<100 where store.isRefreshing {
+            for _ in 0..<100 where (store.isRefreshing || store.isGeminiRefreshing || store.isClaudeRefreshing) {
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
             for dark in [false, true] {

@@ -516,6 +516,73 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         XCTAssertNotNil(tracker.currentCycle, "Primary tracker must hold migrated cycle")
         XCTAssertEqual(tracker.currentCycle?.lastObservedPercent, 2.0)
     }
+
+    /// agy reports `reset = now + 7d` while the weekly quota is unused, so resetsAt slides forward
+    /// on every refresh until the first request. The cycle must follow the window instead of
+    /// accumulating extra days.
+    func testIdleRollingWindowKeepsCycleAtSevenDays() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Seoul")!
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_rolling",
+                                         legacySuiteNames: [], calendar: calendar)
+
+        let start = Date(timeIntervalSince1970: 1791204617) // 2026-10-05 18:30:17 KST
+        // Idle for five days, refreshed every 30 minutes: reset always reported 7 days out.
+        var now = start
+        while now < start.addingTimeInterval(5 * 86400) {
+            let resetsAt = Int64(now.addingTimeInterval(7 * 86400).timeIntervalSince1970)
+            tracker.record(resetsAt: resetsAt, usedPercent: 0, accountId: "gemini", now: now, calendar: calendar)
+            now = now.addingTimeInterval(1800)
+        }
+        // First use: the window is now fixed.
+        let fixedReset = Int64(now.addingTimeInterval(7 * 86400).timeIntervalSince1970)
+        tracker.record(resetsAt: fixedReset, usedPercent: 30, accountId: "gemini", now: now, calendar: calendar)
+        tracker.record(resetsAt: fixedReset, usedPercent: 40, accountId: "gemini",
+                       now: now.addingTimeInterval(2 * 86400), calendar: calendar)
+
+        let cycle = try! XCTUnwrap(tracker.currentCycle)
+        XCTAssertLessThanOrEqual(cycle.dailyUsage.count, 8, "A weekly cycle spans at most 8 calendar days")
+        XCTAssertEqual(cycle.cycleStart, Date(timeIntervalSince1970: TimeInterval(fixedReset) - 7 * 86400))
+        XCTAssertEqual(cycle.dailyUsage[0], 30, "First use belongs to the first day of the real window")
+        XCTAssertEqual(cycle.dailyUsage[2], 10)
+        XCTAssertEqual(cycle.dailyUsage.reduce(0, +), 40)
+    }
+
+    /// Cycles persisted by older builds already drifted to 13 days; loading must repair them.
+    func testLoadingDriftedCycleRealignsToReportedWindow() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Seoul")!
+        // Real data captured from an affected install (cycleStart is a reference-date timestamp).
+        let json = """
+        {"dailyUsage":[0,0,0,0,0,31.33,0,7.26,1.62,0,0,0,0],"lastObservedAt":813741849,
+         "offlineGapDays":[7],"lastObservedPercent":25.5,"resetsAt":1792207334,
+         "accountId":"gemini","cycleStart":812897417}
+        """
+        defaults.set(Data(json.utf8), forKey: "tracker_drifted")
+
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_drifted",
+                                         legacySuiteNames: [], calendar: calendar)
+
+        let cycle = try XCTUnwrap(tracker.currentCycle)
+        XCTAssertEqual(cycle.cycleStart, Date(timeIntervalSince1970: 1792207334 - 7 * 86400))
+        XCTAssertEqual(cycle.dailyUsage, [31.33, 0, 7.26, 1.62, 0, 0, 0, 0])
+        XCTAssertEqual(cycle.offlineGapDays, [2])
+
+        // The repaired cycle is persisted.
+        let reloaded = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_drifted",
+                                          legacySuiteNames: [], calendar: calendar)
+        XCTAssertEqual(reloaded.currentCycle?.dailyUsage.count, 8)
+    }
+
+    func testRealignmentIgnoresSmallJitter() {
+        let resetsAt: Int64 = 1790760951
+        let cycle = WeeklyUsageCycle(
+            resetsAt: resetsAt,
+            cycleStart: Date(timeIntervalSince1970: TimeInterval(resetsAt) - 7 * 86400 - 300),
+            initialPercent: 10, initialDayIndex: 1, dayCount: 8
+        )
+        XCTAssertEqual(WeeklyUsageTracker.realigned(cycle), cycle)
+    }
 }
 
 

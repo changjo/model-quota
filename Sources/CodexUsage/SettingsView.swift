@@ -7,10 +7,12 @@ struct SettingsView: View {
     @ObservedObject var launchAtLogin: LaunchAtLoginStore
     @State private var path = ""
     @State private var agyPath = ""
+    @State private var claudePath = ""
     @State private var validationFailed = false
 
     private var trimmedPath: String { path.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var trimmedAgyPath: String { agyPath.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var trimmedClaudePath: String { claudePath.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var versionDescription: String {
         guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String else {
@@ -95,6 +97,47 @@ struct SettingsView: View {
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 85)
                             }
+                        }
+
+                        Divider()
+
+                        // Claude Settings
+                        HStack(alignment: .center, spacing: 12) {
+                            Toggle("Show Claude in Menu Bar", isOn: $store.showClaudeInMenuBar)
+                                .labelsHidden()
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Claude").font(.headline)
+                                Text("Anthropic Claude Code CLI").font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            HStack(spacing: 6) {
+                                Text("Label:").font(.caption).foregroundStyle(.secondary)
+                                TextField("Claude", text: $store.claudeLabel)
+                                    .labelsHidden()
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 85)
+                            }
+                        }
+
+                        Divider()
+
+                        // Limit Display Format
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Limit Format")
+                                    .font(.subheadline.weight(.medium))
+                                Spacer()
+                                Picker("Limit Format", selection: $store.menuBarDisplayMode) {
+                                    ForEach(MenuBarDisplayMode.allCases) { mode in
+                                        Text(mode.title).tag(mode)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .frame(width: 230)
+                            }
+                            Text("Choose which limits to display in the menu bar: both session and weekly, weekly only, session only, or the most restrictive limit.")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
 
                         Divider()
@@ -221,6 +264,54 @@ struct SettingsView: View {
                 footer: {
                     Text("Uses your local Antigravity CLI session. No API keys or tokens are stored.")
                 }
+
+                Section {
+                    LabeledContent("Status") {
+                        if store.isClaudeRefreshing {
+                            HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Querying…") }
+                        } else if let error = store.claudeError {
+                            Label(error.errorDescription(for: store.claudeLabel), systemImage: "exclamationmark.circle")
+                                .foregroundStyle(.orange)
+                        } else if store.claudeSnapshot != nil {
+                            Label("Connected (claude)", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                        } else {
+                            Text("Ready").foregroundStyle(.secondary)
+                        }
+                    }
+                    if let error = store.claudeError {
+                        Text(error.recoverySuggestion(for: store.claudeLabel)).font(.caption)
+                            .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    HStack(spacing: 12) {
+                        Text("Refresh")
+                        Spacer()
+                        Text("Every minute").foregroundStyle(.secondary)
+                        Button("Refresh Now") { store.refreshClaude() }
+                            .disabled(store.isClaudeRefreshing)
+                    }
+                    .accessibilityElement(children: .contain)
+                    if let updated = store.claudeLastUpdated {
+                        LabeledContent("Last updated") {
+                            Text(updated, format: .dateTime.hour().minute().second().locale(Locale(identifier: "en_US")))
+                                .monospacedDigit().foregroundStyle(.secondary)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Executable path").font(.subheadline)
+                        HStack(spacing: 8) {
+                            TextField("", text: $claudePath, prompt: Text("Detect automatically (~/.local/bin/claude)"))
+                                .labelsHidden()
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityLabel("Claude executable path")
+                                .onSubmit { apply() }
+                            Button("Choose…", action: chooseClaudeExecutable)
+                        }
+                    }
+                } header: { Text("Claude Code CLI") }
+                footer: {
+                    Text("Uses your local Claude CLI session via stream-json. No API keys or tokens are stored.")
+                }
             }
             .formStyle(.grouped)
 
@@ -229,13 +320,14 @@ struct SettingsView: View {
                 Button("Use Automatic Detection") {
                     path = ""
                     agyPath = ""
+                    claudePath = ""
                     apply()
                 }
-                .disabled(store.customPath.isEmpty && path.isEmpty && store.agyCustomPath.isEmpty && agyPath.isEmpty)
+                .disabled(store.customPath.isEmpty && path.isEmpty && store.agyCustomPath.isEmpty && agyPath.isEmpty && store.claudeCustomPath.isEmpty && claudePath.isEmpty)
                 Spacer()
                 Button("Apply", action: apply)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(trimmedPath == store.customPath && trimmedAgyPath == store.agyCustomPath)
+                    .disabled(trimmedPath == store.customPath && trimmedAgyPath == store.agyCustomPath && trimmedClaudePath == store.claudeCustomPath)
             }
             .disabled(store.isReconfiguring)
             .padding(16)
@@ -244,6 +336,7 @@ struct SettingsView: View {
         .onAppear {
             path = store.customPath
             agyPath = store.agyCustomPath
+            claudePath = store.claudeCustomPath
             launchAtLogin.refreshStatus()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -267,6 +360,13 @@ struct SettingsView: View {
             Task {
                 await store.applyAgyCustomPath(candidate)
                 agyPath = store.agyCustomPath
+            }
+        }
+        if trimmedClaudePath != store.claudeCustomPath {
+            let candidate = claudePath
+            Task {
+                await store.applyClaudeCustomPath(candidate)
+                claudePath = store.claudeCustomPath
             }
         }
     }
@@ -296,6 +396,23 @@ struct SettingsView: View {
         panel.directoryURL = URL(fileURLWithPath: "/opt/homebrew/bin")
         if panel.runModal() == .OK, let url = panel.url {
             agyPath = url.path
+            apply()
+        }
+    }
+
+    private func chooseClaudeExecutable() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Claude Executable"
+        panel.message = "Select your installed claude executable."
+        panel.prompt = "Choose"
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        panel.directoryURL = home.appendingPathComponent(".local/bin")
+        if panel.runModal() == .OK, let url = panel.url {
+            claudePath = url.path
             apply()
         }
     }

@@ -27,7 +27,7 @@ struct UsagePopover: View {
                     Text("Your available capacity").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if store.isRefreshing || store.isGeminiRefreshing {
+                if store.isRefreshing || store.isGeminiRefreshing || store.isClaudeRefreshing {
                     ProgressView().controlSize(.small)
                         .accessibilityLabel("Refreshing usage")
                 }
@@ -36,13 +36,13 @@ struct UsagePopover: View {
 
             ScrollView { details }
                 .scrollBounceBehavior(.basedOnSize)
-                .frame(maxHeight: 460)
+                .frame(maxHeight: 470)
                 .fixedSize(horizontal: false, vertical: true)
 
             Divider()
             HStack(spacing: 12) {
                 Button { store.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
-                    .disabled(store.isRefreshing || store.isGeminiRefreshing || store.isReconfiguring)
+                    .disabled(store.isRefreshing || store.isGeminiRefreshing || store.isClaudeRefreshing || store.isReconfiguring)
                     .keyboardShortcut("r", modifiers: .command)
                     .help("Refresh usage (⌘R)")
                 Spacer()
@@ -75,6 +75,17 @@ struct UsagePopover: View {
                 lastUpdated: store.geminiLastUpdated,
                 isRefreshing: store.isGeminiRefreshing,
                 weeklyCycle: store.geminiWeeklyTracker.currentCycle
+            )
+
+            Divider().padding(.horizontal, 4)
+
+            ClaudeQuotaView(
+                snapshot: store.claudeSnapshot,
+                error: store.claudeError,
+                label: store.claudeLabel,
+                lastUpdated: store.claudeLastUpdated,
+                isRefreshing: store.isClaudeRefreshing,
+                weeklyCycle: store.claudeWeeklyTracker.currentCycle
             )
         }
         .padding(.horizontal, 16)
@@ -138,15 +149,7 @@ struct UsagePopover: View {
             }
 
             if let updated = store.lastUpdated {
-                HStack(spacing: 4) {
-                    Text(store.error == nil ? "Updated" : "Last updated")
-                    Text(updated, format: .dateTime.hour().minute().second().locale(Locale(identifier: "en_US")))
-                        .monospacedDigit()
-                    Spacer()
-                    Text(store.error == nil ? "Every minute" : "Retrying automatically")
-                }
-                .font(.caption2).foregroundStyle(.secondary)
-                .padding(.horizontal, 2)
+                UpdatedFooter(date: updated, hasError: store.error != nil)
             }
         }
     }
@@ -161,20 +164,7 @@ struct UsagePopover: View {
     }
 
     private func statusMessage(_ title: String, detail: String, symbol: String, warning: Bool = false) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: symbol)
-                .font(.title3).foregroundStyle(warning ? Color.orange : Color.secondary)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(title).font(.subheadline.weight(.medium))
-                Text(detail).font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 10))
+        StatusCard(title: title, detail: detail, symbol: symbol, warning: warning)
     }
 }
 
@@ -183,50 +173,13 @@ private struct QuotaView: View {
     var weeklyCycle: WeeklyUsageCycle? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(quota.title).font(.subheadline.weight(.semibold))
-                Spacer()
-                Text("\(Int(quota.usedPercent.rounded()))% used")
-                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text("\(quota.remainingPercent)%")
-                    .font(.system(size: 30, weight: .semibold)).monospacedDigit()
-                Text("remaining").font(.subheadline).foregroundStyle(.secondary)
-            }
-            ProgressView(value: quota.remainingFraction)
-                .tint(quota.remainingPercent <= 10 ? .orange : .accentColor)
-                .accessibilityLabel("\(quota.title) remaining usage")
-                .accessibilityValue("\(quota.remainingPercent) percent")
-
-            if let weeklyCycle, quota.durationMinutes == 10080 {
-                WeeklyHistogramView(cycle: weeklyCycle)
-            }
-
-            if let date = quota.resetDate {
-                TimelineView(.periodic(from: .now, by: 60)) { context in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Label(remainingTime(until: date, now: context.date), systemImage: "clock")
-                        Text(date, format: .dateTime.month(.abbreviated).day().hour().minute().locale(Locale(identifier: "en_US")))
-                            .padding(.leading, 16).monospacedDigit()
-                    }
-                }
-                .font(.caption).foregroundStyle(.secondary)
-            } else {
-                Label("Reset time unavailable", systemImage: "clock")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .padding(14)
-    }
-
-    private func remainingTime(until date: Date, now: Date) -> String {
-        let seconds = date.timeIntervalSince(now)
-        guard seconds > 0 else { return "Reset pending an update" }
-        let minutes = Int((seconds / 60).rounded(.up))
-        if minutes >= 1440 { return "Resets in \(minutes / 1440)d \((minutes % 1440) / 60)h" }
-        if minutes >= 60 { return "Resets in \(minutes / 60)h \(minutes % 60)m" }
-        return "Resets in \(minutes)m"
+        UsageMeterRow(
+            title: quota.title,
+            usedPercent: quota.usedPercent,
+            remainingPercent: quota.remainingPercent,
+            remainingFraction: quota.remainingFraction,
+            resetDate: quota.resetDate,
+            weeklyCycle: quota.durationMinutes == 10080 ? weeklyCycle : nil
+        )
     }
 }

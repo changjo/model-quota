@@ -17,6 +17,22 @@ public struct GeminiUsageSnapshot: Codable, Equatable, Sendable {
             max(0, min(100, (1.0 - remainingFraction) * 100))
         }
 
+        public init(
+            id: String,
+            name: String,
+            description: String? = nil,
+            window: String,
+            remainingFraction: Double,
+            resetTime: Date? = nil
+        ) {
+            self.id = id
+            self.name = name
+            self.description = description
+            self.window = window
+            self.remainingFraction = remainingFraction
+            self.resetTime = resetTime
+        }
+
         enum CodingKeys: String, CodingKey {
             case id
             case name
@@ -32,6 +48,12 @@ public struct GeminiUsageSnapshot: Codable, Equatable, Sendable {
         public let name: String
         public let description: String?
         public let buckets: [Bucket]
+
+        public init(name: String, description: String? = nil, buckets: [Bucket]) {
+            self.name = name
+            self.description = description
+            self.buckets = buckets
+        }
     }
 
     public let groups: [ModelGroup]
@@ -60,6 +82,36 @@ public struct GeminiUsageSnapshot: Codable, Equatable, Sendable {
 
     public var fiveHourRemainingPercent: Int? {
         fiveHourBucket?.remainingPercent
+    }
+
+    public func formattedValue(for mode: MenuBarDisplayMode) -> String {
+        let session = fiveHourBucket
+        let weekly = weeklyBucket
+
+        switch mode {
+        case .both:
+            if let s = session, let w = weekly {
+                return "\(s.remainingPercent)% / \(w.remainingPercent)%"
+            } else if let w = weekly {
+                return "\(w.remainingPercent)%"
+            } else if let s = session {
+                return "\(s.remainingPercent)%"
+            }
+            return "\(primaryRemainingPercent)%"
+        case .weeklyOnly:
+            if let w = weekly { return "\(w.remainingPercent)%" }
+            if let s = session { return "\(s.remainingPercent)%" }
+            return "\(primaryRemainingPercent)%"
+        case .sessionOnly:
+            if let s = session { return "\(s.remainingPercent)%" }
+            if let w = weekly { return "\(w.remainingPercent)%" }
+            return "\(primaryRemainingPercent)%"
+        case .mostRestrictive:
+            if let s = session, let w = weekly {
+                return "\(min(s.remainingPercent, w.remainingPercent))%"
+            }
+            return "\(primaryRemainingPercent)%"
+        }
     }
 
     public static func decode(from data: Data) throws -> GeminiUsageSnapshot {

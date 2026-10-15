@@ -256,6 +256,7 @@ final class UsageStoreTests: XCTestCase {
         let defaults = UserDefaults(suiteName: UUID().uuidString)!
         let store = UsageStore(client: connection, geminiClient: mockGemini, defaults: defaults,
                                locate: { _ in URL(fileURLWithPath: "/usr/bin/true") })
+        store.showClaudeInMenuBar = false
         store.start()
         await waitUntil { connection.reads == 1 }
         connection.complete(.success(try snapshot()))
@@ -299,7 +300,7 @@ final class UsageStoreTests: XCTestCase {
         await waitUntil { !store.isRefreshing && !store.isGeminiRefreshing }
 
         XCTAssertEqual(store.menuBarItems[0].summaryValue, "3%")
-        XCTAssertEqual(store.menuBarItems[1].summaryValue, "86%")
+        XCTAssertEqual(store.menuBarItems[1].summaryValue, "91% / 86%")
 
         store.refreshCodex()
         XCTAssertTrue(store.isRefreshing)
@@ -309,6 +310,100 @@ final class UsageStoreTests: XCTestCase {
         await waitUntil { connection.reads == 2 }
         connection.complete(.success(try snapshot()))
         await waitUntil { !store.isRefreshing }
+
+        await store.stop()
+    }
+
+    func testClaudeIntegrationAndMenuBarItems() async throws {
+        let connection = Connection()
+        let streamJson = """
+        {"type":"control_response","response":{"subtype":"success","response":{"subscription_type":"Claude Pro","rate_limits_available":true,"rate_limits":{"five_hour":{"resets_at":"2026-10-15T11:00:00.000Z","utilization":30.0},"seven_day":{"resets_at":"2026-10-21T06:00:00.000Z","utilization":60.0},"seven_day_breakdown":{"rows":[{"display_name":"Claude 3.7 Sonnet","key":"claude-3-7-sonnet","percent":55.0}]}}}}}
+        """
+        let mockClaude = MockClaudeClient(mockData: Data(streamJson.utf8))
+        let fixtureURL = Bundle.module.url(forResource: "agy-usage-sample", withExtension: "json", subdirectory: "Fixtures")
+            ?? URL(fileURLWithPath: "Tests/CodexUsageCoreTests/Fixtures/agy-usage-sample.json")
+        let geminiData = try Data(contentsOf: fixtureURL)
+        let mockGemini = MockGeminiAgyClient(mockData: geminiData)
+
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = UsageStore(
+            client: connection,
+            geminiClient: mockGemini,
+            claudeClient: mockClaude,
+            defaults: defaults,
+            locate: { _ in URL(fileURLWithPath: "/usr/bin/true") }
+        )
+        store.start()
+        await waitUntil { connection.reads == 1 }
+        connection.complete(.success(try snapshot()))
+        await waitUntil { !store.isRefreshing && !store.isGeminiRefreshing && !store.isClaudeRefreshing }
+
+        XCTAssertNotNil(store.claudeSnapshot)
+        XCTAssertEqual(store.claudeSnapshot?.primaryRemainingPercent, 40)
+        XCTAssertNotNil(store.claudeWeeklyTracker.currentCycle)
+        XCTAssertEqual(store.claudeWeeklyTracker.currentCycle?.lastObservedPercent, 60.0)
+
+        // Menu bar has 3 items
+        XCTAssertEqual(store.menuBarItems.count, 3)
+        XCTAssertEqual(store.menuBarItems[0].label, "Codex")
+        XCTAssertEqual(store.menuBarItems[1].label, "Gemini")
+        XCTAssertEqual(store.menuBarItems[2].label, "Claude")
+        XCTAssertEqual(store.menuBarItems[2].summaryValue, "70% / 40%")
+
+        // Custom label
+        store.claudeLabel = "Claude Code"
+        XCTAssertEqual(store.menuBarItems[2].label, "Claude Code")
+
+        // Visibility toggle
+        store.showClaudeInMenuBar = false
+        XCTAssertEqual(store.menuBarItems.count, 2)
+
+        await store.stop()
+    }
+
+    func testMenuBarDisplayModes() async throws {
+        let connection = Connection()
+        let streamJson = """
+        {"type":"control_response","response":{"subtype":"success","response":{"subscription_type":"Claude Pro","rate_limits_available":true,"rate_limits":{"five_hour":{"resets_at":"2026-10-15T11:00:00.000Z","utilization":30.0},"seven_day":{"resets_at":"2026-10-21T06:00:00.000Z","utilization":60.0}}}}}
+        """
+        let mockClaude = MockClaudeClient(mockData: Data(streamJson.utf8))
+        let fixtureURL = Bundle.module.url(forResource: "agy-usage-sample", withExtension: "json", subdirectory: "Fixtures")
+            ?? URL(fileURLWithPath: "Tests/CodexUsageCoreTests/Fixtures/agy-usage-sample.json")
+        let geminiData = try Data(contentsOf: fixtureURL)
+        let mockGemini = MockGeminiAgyClient(mockData: geminiData)
+
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = UsageStore(
+            client: connection,
+            geminiClient: mockGemini,
+            claudeClient: mockClaude,
+            defaults: defaults,
+            locate: { _ in URL(fileURLWithPath: "/usr/bin/true") }
+        )
+        store.start()
+        await waitUntil { connection.reads == 1 }
+        connection.complete(.success(try snapshot()))
+        await waitUntil { !store.isRefreshing && !store.isGeminiRefreshing && !store.isClaudeRefreshing }
+
+        // 1. Both (default)
+        store.menuBarDisplayMode = .both
+        XCTAssertEqual(store.menuBarItems[1].summaryValue, "91% / 86%")
+        XCTAssertEqual(store.menuBarItems[2].summaryValue, "70% / 40%")
+
+        // 2. Weekly only
+        store.menuBarDisplayMode = .weeklyOnly
+        XCTAssertEqual(store.menuBarItems[1].summaryValue, "86%")
+        XCTAssertEqual(store.menuBarItems[2].summaryValue, "40%")
+
+        // 3. Session only
+        store.menuBarDisplayMode = .sessionOnly
+        XCTAssertEqual(store.menuBarItems[1].summaryValue, "91%")
+        XCTAssertEqual(store.menuBarItems[2].summaryValue, "70%")
+
+        // 4. Most restrictive
+        store.menuBarDisplayMode = .mostRestrictive
+        XCTAssertEqual(store.menuBarItems[1].summaryValue, "86%")
+        XCTAssertEqual(store.menuBarItems[2].summaryValue, "40%")
 
         await store.stop()
     }

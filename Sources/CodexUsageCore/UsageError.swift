@@ -34,12 +34,16 @@ public enum UsageError: Error, Equatable, LocalizedError {
         case .cliNotFound:
             if provider == "Codex" {
                 return "Install the official Codex CLI or choose its executable in Settings."
+            } else if provider == "Claude" {
+                return "Install the official Claude Code CLI (claude) or choose its executable in Settings."
             } else {
                 return "Install the official Antigravity CLI (agy) or choose its executable in Settings."
             }
         case .loginRequired:
             if provider == "Codex" {
                 return "Run codex login in Terminal, then refresh."
+            } else if provider == "Claude" {
+                return "Run claude in Terminal to sign in to your Anthropic account, then refresh."
             } else {
                 return "Sign in to your Google Antigravity account in Terminal, then refresh."
             }
@@ -48,6 +52,8 @@ public enum UsageError: Error, Equatable, LocalizedError {
         case .startFailed:
             if provider == "Codex" {
                 return "Check the executable in Settings and confirm that codex runs in Terminal."
+            } else if provider == "Claude" {
+                return "Check the executable in Settings and confirm that claude runs in Terminal."
             } else {
                 return "Check the executable in Settings and confirm that agy runs in Terminal."
             }

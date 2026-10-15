@@ -26,6 +26,28 @@ public struct UsageSnapshot: Decodable, Equatable, Sendable {
         let values = quotas.map { "\($0.remainingPercent)%" }
         return values.isEmpty ? "Codex ?" : "Codex " + values.joined(separator: " / ")
     }
+
+    public func formattedValue(for mode: MenuBarDisplayMode) -> String {
+        guard !quotas.isEmpty else { return "?" }
+        let session = quotas.first(where: { ($0.durationMinutes ?? Int.max) < 1440 })
+        let weekly = quotas.first(where: { ($0.durationMinutes ?? 0) >= 1440 })
+
+        switch mode {
+        case .both:
+            return quotas.map { "\($0.remainingPercent)%" }.joined(separator: " / ")
+        case .weeklyOnly:
+            if let weekly { return "\(weekly.remainingPercent)%" }
+            if let session { return "\(session.remainingPercent)%" }
+            return "\(quotas[0].remainingPercent)%"
+        case .sessionOnly:
+            if let session { return "\(session.remainingPercent)%" }
+            if let weekly { return "\(weekly.remainingPercent)%" }
+            return "\(quotas[0].remainingPercent)%"
+        case .mostRestrictive:
+            let minPercent = quotas.map(\.remainingPercent).min() ?? 100
+            return "\(minPercent)%"
+        }
+    }
 }
 
 public struct RateLimitBucket: Decodable, Equatable, Sendable {

@@ -25,9 +25,10 @@ struct WeeklyHistogramView: View {
         barCount > 7 ? 4 : 6
     }
 
-    private var barWidth: CGFloat {
-        barCount > 7 ? 28 : 32
-    }
+    /// Upper bound for a bar's width; bars shrink below this when the cycle has many days
+    /// so the histogram never grows wider than its container.
+    private let maxBarWidth: CGFloat = 32
+    private let barHeight: CGFloat = 38
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -35,11 +36,15 @@ struct WeeklyHistogramView: View {
                 Text("Daily Usage (7-Day Cycle)")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
-                Spacer()
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Spacer(minLength: 4)
                 if !cycle.offlineGapDays.isEmpty {
                     Text("* Includes offline usage")
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
             }
 
@@ -66,13 +71,13 @@ struct WeeklyHistogramView: View {
                 // Background track
                 RoundedRectangle(cornerRadius: 3)
                     .fill(Color.secondary.opacity(isFuture ? 0.08 : 0.15))
-                    .frame(width: barWidth, height: 38)
+                    .frame(height: barHeight)
 
                 // Usage fill
                 if !isFuture && fillFraction > 0 {
                     RoundedRectangle(cornerRadius: 3)
                         .fill(isCurrent ? Color.accentColor : Color.accentColor.opacity(0.65))
-                        .frame(width: barWidth, height: max(3.0, 38.0 * fillFraction))
+                        .frame(height: max(3.0, barHeight * fillFraction))
                 }
             }
 
@@ -87,13 +92,18 @@ struct WeeklyHistogramView: View {
                         .foregroundStyle(Color.orange)
                 }
             }
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
 
             // Usage percentage
             Text(isFuture ? "-" : "\(Int(usage.rounded()))%")
                 .font(.system(size: barCount > 7 ? 8 : 9))
                 .monospacedDigit()
                 .foregroundStyle(isCurrent ? .primary : .secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
         }
+        .frame(minWidth: 0, maxWidth: maxBarWidth)
         .help(tooltip(for: index, usage: usage, isCurrent: isCurrent, isFuture: isFuture, hasGap: hasGap))
     }
 
@@ -105,7 +115,8 @@ struct WeeklyHistogramView: View {
         let dateStr: String
         if let barDate {
             let df = DateFormatter()
-            df.locale = Locale.current
+            // Match the rest of the popover, which is rendered in English.
+            df.locale = Locale(identifier: "en_US")
             df.timeZone = calendar.timeZone
             df.dateFormat = "M/d (E)"
             dateStr = " (\(df.string(from: barDate)))"
