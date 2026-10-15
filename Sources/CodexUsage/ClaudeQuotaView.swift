@@ -15,14 +15,6 @@ struct ClaudeQuotaView: View {
                 Label(label, systemImage: "bubble.left.and.text.bubble.right")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
-                if let subType = snapshot?.subscriptionType, !subType.isEmpty {
-                    Text(subType)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.quaternary, in: Capsule())
-                }
                 Spacer()
                 if isRefreshing {
                     ProgressView().controlSize(.small)
