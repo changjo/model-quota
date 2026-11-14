@@ -48,6 +48,8 @@ To build a release archive with the app, installation guide, and license:
 
 This creates `dist/Model-Quota-0.1.0-macos-arm64.zip` on Apple Silicon and a matching `.sha256` checksum file. The filename uses the actual bundle version and binary architecture. The script verifies the extracted archive before producing the checksum. Upload only the intended ZIP and checksum, not the entire `dist` directory.
 
+Published releases are built the same way by `.github/workflows/release.yml` on a GitHub-hosted Apple Silicon runner (`macos-26`). They carry the same ad-hoc signature and are not notarized.
+
 ### Compatibility and validation
 
 The current binary has been tested on Apple Silicon with macOS 27, native Codex CLI, and Antigravity (`agy`). macOS 14 is the deployment target.
@@ -91,7 +93,7 @@ General ChatGPT per-model message quotas and low-usage alerts are not included.
 
 ### Version policy
 
-The first planned GitHub release is **0.1.0**. Keep `CFBundleShortVersionString` at 0.1.0 during development and do not automatically increment `CFBundleVersion`. Change either value only when the project owner explicitly requests a release version change.
+Releases are automatic. When a push to `main` changes `CFBundleShortVersionString` in `Resources/Info.plist` to a version that has no `v<version>` tag, GitHub Actions runs the tests, builds the archive with `scripts/package-app.sh`, and publishes a GitHub Release with the ZIP and its checksum. Change the version only for an intended release, and increase `CFBundleVersion` by hand in the same commit. CI never edits either value. Versions use `X.Y.Z`.
 
 Earlier internal development notes used 0.2.x and 0.3.0 as work markers; these were not public releases.
 
