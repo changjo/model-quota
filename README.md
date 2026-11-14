@@ -16,6 +16,12 @@ The menu bar shows remaining percentages in a clean 2-row grid. Click it for quo
 
 **The app is not notarized by Apple or signed with a Developer ID certificate.** macOS may block the first launch. Continue only if you trust this project and the download source.
 
+Download the ZIP and its `.sha256` file for Apple Silicon Macs from [Releases](https://github.com/changjo/model-quota/releases). To check the download, run this in the folder that holds both files; it should print `OK`:
+
+```sh
+shasum -a 256 -c Model-Quota-*-macos-arm64.zip.sha256
+```
+
 1. Extract the download and move **Model Quota.app** to **Applications**.
 2. Open the app once. If macOS says it cannot verify the developer or check the app, dismiss the alert.
 3. Open **System Settings → Privacy & Security** and select **Open Anyway** for this app in the Security section.
@@ -46,7 +52,7 @@ To build a release archive with the app, installation guide, and license:
 ./scripts/package-app.sh
 ```
 
-This creates `dist/Model-Quota-0.1.0-macos-arm64.zip` on Apple Silicon and a matching `.sha256` checksum file. The filename uses the actual bundle version and binary architecture. The script verifies the extracted archive before producing the checksum. Upload only the intended ZIP and checksum, not the entire `dist` directory.
+This creates `dist/Model-Quota-<version>-macos-arm64.zip` on Apple Silicon and a matching `.sha256` checksum file. The filename uses the actual bundle version and binary architecture. The script verifies the extracted archive before producing the checksum. Upload only the intended ZIP and checksum, not the entire `dist` directory.
 
 Published releases are built the same way by `.github/workflows/release.yml` on a GitHub-hosted Apple Silicon runner (`macos-26`). They carry the same ad-hoc signature and are not notarized.
 

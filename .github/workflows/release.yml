@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release
@@ -46,9 +46,12 @@ jobs:
 
   release:
     needs: check
-    if: needs.check.outputs.release == 'true'
+    # Forks that enable Actions must not publish their own releases.
+    if: github.repository == 'changjo/model-quota' && needs.check.outputs.release == 'true'
     runs-on: macos-26
     timeout-minutes: 30
+    permissions:
+      contents: write
     env:
       VERSION: ${{ needs.check.outputs.version }}
       GH_TOKEN: ${{ github.token }}
