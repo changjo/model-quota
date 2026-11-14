@@ -1,5 +1,7 @@
 # Model Quota
 
+<img src="Resources/AppIcon.png" alt="Model Quota app icon" width="128" height="128">
+
 A lightweight native macOS menu bar app that shows your remaining AI model quotas for Codex, Gemini, and Claude Code.
 
 This is an independent project, not an official OpenAI, Google, or Anthropic product.
