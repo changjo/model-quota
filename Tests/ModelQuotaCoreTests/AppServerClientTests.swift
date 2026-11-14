@@ -1,6 +1,6 @@
 import XCTest
 import Darwin
-@testable import CodexUsageCore
+@testable import ModelQuotaCore
 
 @MainActor
 final class AppServerClientTests: XCTestCase {

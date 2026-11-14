@@ -1,5 +1,5 @@
 import XCTest
-@testable import CodexUsageCore
+@testable import ModelQuotaCore
 
 @MainActor
 final class WeeklyUsageTrackerTests: XCTestCase {
@@ -485,7 +485,7 @@ final class WeeklyUsageTrackerTests: XCTestCase {
     }
 
     func testLegacySuiteCleanupPreventsZombieResurrection() {
-        let legacySuite = "dev.changjo.CodexUsage.test.cleanup.\(UUID().uuidString)"
+        let legacySuite = "dev.changjo.ModelQuota.test.cleanup.\(UUID().uuidString)"
         let primarySuite = "dev.changjo.ModelQuota.test.cleanup.\(UUID().uuidString)"
 
         let legacyDefaults = UserDefaults(suiteName: legacySuite)!

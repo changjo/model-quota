@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import CodexUsageCore
+import ModelQuotaCore
 
 @MainActor
 final class SettingsWindowController: NSWindowController {

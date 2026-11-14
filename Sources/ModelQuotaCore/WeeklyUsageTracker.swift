@@ -29,6 +29,8 @@ public final class WeeklyUsageTracker: ObservableObject {
         a == nil || b == nil || a == b
     }
 
+    /// `storageKey` and `legacySuiteNames` keep the app's former "Codex Usage" names on purpose:
+    /// they locate history already saved on users' Macs, so renaming them would drop that history.
     public init(
         userDefaults: UserDefaults = .standard,
         storageKey: String = "codex_usage_weekly_tracker",

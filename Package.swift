@@ -4,11 +4,11 @@ import PackageDescription
 let package = Package(
     name: "ModelQuota",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "ModelQuota", targets: ["CodexUsage"])],
+    products: [.executable(name: "ModelQuota", targets: ["ModelQuota"])],
     targets: [
-        .target(name: "CodexUsageCore"),
-        .executableTarget(name: "CodexUsage", dependencies: ["CodexUsageCore"]),
-        .testTarget(name: "CodexUsageCoreTests", dependencies: ["CodexUsageCore"],
+        .target(name: "ModelQuotaCore"),
+        .executableTarget(name: "ModelQuota", dependencies: ["ModelQuotaCore"]),
+        .testTarget(name: "ModelQuotaCoreTests", dependencies: ["ModelQuotaCore"],
                     resources: [.copy("Fixtures")])
     ]
 )

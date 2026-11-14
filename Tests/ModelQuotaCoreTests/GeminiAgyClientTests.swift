@@ -1,11 +1,11 @@
 import XCTest
-@testable import CodexUsageCore
+@testable import ModelQuotaCore
 
 final class GeminiAgyClientTests: XCTestCase {
     @MainActor
     func testMockAgyClientReturnsSnapshot() async throws {
         let fixtureURL = Bundle.module.url(forResource: "agy-usage-sample", withExtension: "json", subdirectory: "Fixtures")
-            ?? URL(fileURLWithPath: "Tests/CodexUsageCoreTests/Fixtures/agy-usage-sample.json")
+            ?? URL(fileURLWithPath: "Tests/ModelQuotaCoreTests/Fixtures/agy-usage-sample.json")
         let data = try Data(contentsOf: fixtureURL)
 
         let client = MockGeminiAgyClient(mockData: data)

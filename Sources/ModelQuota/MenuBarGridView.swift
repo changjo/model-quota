@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import CodexUsageCore
+import ModelQuotaCore
 
 @MainActor
 final class MenuBarImageRenderer {

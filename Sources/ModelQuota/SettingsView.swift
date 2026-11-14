@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import CodexUsageCore
+import ModelQuotaCore
 
 enum SettingsTab: Hashable {
     case general, codex, gemini, claude

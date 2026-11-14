@@ -1,10 +1,10 @@
 import XCTest
-@testable import CodexUsageCore
+@testable import ModelQuotaCore
 
 final class GeminiUsageSnapshotTests: XCTestCase {
     func testDecodeAgyJsonSample() throws {
         let fixtureURL = Bundle.module.url(forResource: "agy-usage-sample", withExtension: "json", subdirectory: "Fixtures")
-            ?? URL(fileURLWithPath: "Tests/CodexUsageCoreTests/Fixtures/agy-usage-sample.json")
+            ?? URL(fileURLWithPath: "Tests/ModelQuotaCoreTests/Fixtures/agy-usage-sample.json")
         let data = try Data(contentsOf: fixtureURL)
         let snapshot = try GeminiUsageSnapshot.decode(from: data)
 
@@ -31,7 +31,7 @@ final class GeminiUsageSnapshotTests: XCTestCase {
 
     func testClaudeAndGptGroupDecoding() throws {
         let fixtureURL = Bundle.module.url(forResource: "agy-usage-sample", withExtension: "json", subdirectory: "Fixtures")
-            ?? URL(fileURLWithPath: "Tests/CodexUsageCoreTests/Fixtures/agy-usage-sample.json")
+            ?? URL(fileURLWithPath: "Tests/ModelQuotaCoreTests/Fixtures/agy-usage-sample.json")
         let data = try Data(contentsOf: fixtureURL)
         let snapshot = try GeminiUsageSnapshot.decode(from: data)
 

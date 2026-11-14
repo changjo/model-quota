@@ -1,5 +1,5 @@
 import XCTest
-@testable import CodexUsageCore
+@testable import ModelQuotaCore
 
 final class ExecutableLocatorTests: XCTestCase {
     func testExplicitPathIsUsedWithoutShellInterpretation() throws {

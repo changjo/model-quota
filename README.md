@@ -1,8 +1,8 @@
 # Model Quota
 
-A lightweight native macOS menu bar app that shows your remaining AI model quotas (Codex, Gemini, and more).
+A lightweight native macOS menu bar app that shows your remaining AI model quotas for Codex, Gemini, and Claude Code.
 
-This is an independent project, not an official OpenAI or Google product.
+This is an independent project, not an official OpenAI, Google, or Anthropic product.
 
 The menu bar shows remaining percentages in a clean 2-row grid. Click it for quota details. The interface uses native macOS controls, system fonts, and light and dark appearances.
 
@@ -105,7 +105,7 @@ Only the fake stdio server used by tests requires `/usr/bin/python3` from the ma
 
 Launch-at-login tests substitute the OS registration boundary to cover registration and removal failures, pending approval, overlapping requests, and external status changes.
 
-App views and lifecycle code are in `Sources/CodexUsage`. Models, connection handling, and state management are in `Sources/CodexUsageCore`.
+App views and lifecycle code are in `Sources/ModelQuota`. Models, connection handling, and state management are in `Sources/ModelQuotaCore`.
 
 To check application termination signals, quit any running instance first, then run:
 

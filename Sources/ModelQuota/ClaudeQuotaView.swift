@@ -1,5 +1,5 @@
 import SwiftUI
-import CodexUsageCore
+import ModelQuotaCore
 
 struct ClaudeQuotaView: View {
     let snapshot: ClaudeUsageSnapshot?

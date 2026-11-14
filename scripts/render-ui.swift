@@ -2,7 +2,7 @@
 // This validates layout; live UI actions are checked separately with the built app.
 import SwiftUI
 import AppKit
-import CodexUsageCore
+import ModelQuotaCore
 import ServiceManagement
 
 @MainActor
@@ -148,7 +148,7 @@ struct RenderUI {
             let name = fixture.name
             let snapshot = try JSONDecoder().decode(UsageSnapshot.self, from: Data(fixture.json.utf8))
             let client = RenderConnection(snapshot, failure: fixture.failure)
-            let suite = "dev.changjo.CodexUsage.render.\(UUID().uuidString)"
+            let suite = "dev.changjo.ModelQuota.render.\(UUID().uuidString)"
             let defaults = UserDefaults(suiteName: suite)!
             let store = UsageStore(
                 client: client,

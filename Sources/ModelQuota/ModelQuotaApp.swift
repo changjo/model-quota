@@ -1,6 +1,6 @@
 import SwiftUI
 import AppKit
-import CodexUsageCore
+import ModelQuotaCore
 import Darwin
 
 @MainActor
@@ -9,7 +9,7 @@ enum AppState {
 }
 
 @main
-struct CodexUsageApp: App {
+struct ModelQuotaApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var store = AppState.store
 

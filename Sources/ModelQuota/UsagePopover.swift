@@ -1,5 +1,5 @@
 import SwiftUI
-import CodexUsageCore
+import ModelQuotaCore
 
 @MainActor
 enum AppIcon {

@@ -1,6 +1,6 @@
 import XCTest
 import ServiceManagement
-@testable import CodexUsageCore
+@testable import ModelQuotaCore
 
 @MainActor
 final class LaunchAtLoginStoreTests: XCTestCase {

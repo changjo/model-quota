@@ -1,5 +1,5 @@
 import XCTest
-@testable import CodexUsageCore
+@testable import ModelQuotaCore
 
 final class CLIProcessTests: XCTestCase {
     private func script(_ body: String) throws -> URL {

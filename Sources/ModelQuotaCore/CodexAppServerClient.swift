@@ -81,7 +81,7 @@ public final class CodexAppServerClient: AppServerConnection {
         do {
             try child.run()
             _ = try await request("initialize", params: [
-                "clientInfo": ["name": "codex_usage_menu_bar", "title": "Codex Usage", "version": "0.1.0"],
+                "clientInfo": ["name": "model_quota", "title": "Model Quota", "version": "0.1.0"],
                 "capabilities": ["experimentalApi": false, "requestAttestation": false]
             ])
             try send(["method": "initialized"])

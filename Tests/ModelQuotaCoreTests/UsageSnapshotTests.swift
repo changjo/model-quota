@@ -1,5 +1,5 @@
 import XCTest
-@testable import CodexUsageCore
+@testable import ModelQuotaCore
 
 final class UsageSnapshotTests: XCTestCase {
     func decode(_ json: String) throws -> UsageSnapshot {

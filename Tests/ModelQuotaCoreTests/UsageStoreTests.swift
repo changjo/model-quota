@@ -1,5 +1,5 @@
 import XCTest
-@testable import CodexUsageCore
+@testable import ModelQuotaCore
 
 @MainActor
 final class UsageStoreTests: XCTestCase {
@@ -306,7 +306,7 @@ final class UsageStoreTests: XCTestCase {
     func testGeminiRefreshUpdatesSnapshotAndMenuBarItems() async throws {
         let connection = Connection()
         let fixtureURL = Bundle.module.url(forResource: "agy-usage-sample", withExtension: "json", subdirectory: "Fixtures")
-            ?? URL(fileURLWithPath: "Tests/CodexUsageCoreTests/Fixtures/agy-usage-sample.json")
+            ?? URL(fileURLWithPath: "Tests/ModelQuotaCoreTests/Fixtures/agy-usage-sample.json")
         let geminiData = try Data(contentsOf: fixtureURL)
         let mockGemini = MockGeminiAgyClient(mockData: geminiData)
 
@@ -344,7 +344,7 @@ final class UsageStoreTests: XCTestCase {
     func testBackgroundRefreshPreservesExistingPercentagesInsteadOfShowingEllipsis() async throws {
         let connection = Connection()
         let fixtureURL = Bundle.module.url(forResource: "agy-usage-sample", withExtension: "json", subdirectory: "Fixtures")
-            ?? URL(fileURLWithPath: "Tests/CodexUsageCoreTests/Fixtures/agy-usage-sample.json")
+            ?? URL(fileURLWithPath: "Tests/ModelQuotaCoreTests/Fixtures/agy-usage-sample.json")
         let geminiData = try Data(contentsOf: fixtureURL)
         let mockGemini = MockGeminiAgyClient(mockData: geminiData)
 
@@ -378,7 +378,7 @@ final class UsageStoreTests: XCTestCase {
         """
         let mockClaude = MockClaudeClient(mockData: Data(streamJson.utf8))
         let fixtureURL = Bundle.module.url(forResource: "agy-usage-sample", withExtension: "json", subdirectory: "Fixtures")
-            ?? URL(fileURLWithPath: "Tests/CodexUsageCoreTests/Fixtures/agy-usage-sample.json")
+            ?? URL(fileURLWithPath: "Tests/ModelQuotaCoreTests/Fixtures/agy-usage-sample.json")
         let geminiData = try Data(contentsOf: fixtureURL)
         let mockGemini = MockGeminiAgyClient(mockData: geminiData)
 
@@ -425,7 +425,7 @@ final class UsageStoreTests: XCTestCase {
         """
         let mockClaude = MockClaudeClient(mockData: Data(streamJson.utf8))
         let fixtureURL = Bundle.module.url(forResource: "agy-usage-sample", withExtension: "json", subdirectory: "Fixtures")
-            ?? URL(fileURLWithPath: "Tests/CodexUsageCoreTests/Fixtures/agy-usage-sample.json")
+            ?? URL(fileURLWithPath: "Tests/ModelQuotaCoreTests/Fixtures/agy-usage-sample.json")
         let geminiData = try Data(contentsOf: fixtureURL)
         let mockGemini = MockGeminiAgyClient(mockData: geminiData)
 
@@ -789,7 +789,7 @@ final class UsageStoreTests: XCTestCase {
     func testStopClearsEveryProviderSnapshot() async throws {
         let connection = Connection()
         let fixtureURL = Bundle.module.url(forResource: "agy-usage-sample", withExtension: "json", subdirectory: "Fixtures")
-            ?? URL(fileURLWithPath: "Tests/CodexUsageCoreTests/Fixtures/agy-usage-sample.json")
+            ?? URL(fileURLWithPath: "Tests/ModelQuotaCoreTests/Fixtures/agy-usage-sample.json")
         let store = makeStore(connection, gemini: MockGeminiAgyClient(mockData: try Data(contentsOf: fixtureURL)))
         store.start()
         await waitUntil { connection.reads == 1 }

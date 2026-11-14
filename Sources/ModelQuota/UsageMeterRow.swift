@@ -1,5 +1,5 @@
 import SwiftUI
-import CodexUsageCore
+import ModelQuotaCore
 
 /// One quota window (e.g. "Weekly Limit") as shown in the popover. Shared by every provider
 /// section so they all render identically.
