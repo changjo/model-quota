@@ -81,7 +81,8 @@ jobs:
       - name: Create draft release
         run: |
           gh release create "v$VERSION" --draft --target "$GITHUB_SHA" \
-            --title "Model Quota $VERSION" --generate-notes \
+            --title "Model Quota $VERSION" \
+            --notes-file .github/release-notes.md --generate-notes \
             "dist/Model-Quota-$VERSION-macos-arm64.zip" \
             "dist/Model-Quota-$VERSION-macos-arm64.zip.sha256"
 
