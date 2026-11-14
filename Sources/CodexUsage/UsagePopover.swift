@@ -70,36 +70,11 @@ struct UsagePopover: View {
 
     private var details: some View {
         VStack(spacing: 16) {
-            if store.isCodexEnabled {
-                codexSection
-            }
-
-            if store.isGeminiEnabled {
-                if store.isCodexEnabled {
+            ForEach(Array(store.popoverProviders.enumerated()), id: \.element) { index, kind in
+                if index > 0 {
                     Divider().padding(.horizontal, 4)
                 }
-                GeminiQuotaView(
-                    snapshot: store.geminiSnapshot,
-                    error: store.geminiError,
-                    name: store.geminiName,
-                    lastUpdated: store.geminiLastUpdated,
-                    isRefreshing: store.isGeminiRefreshing,
-                    weeklyCycle: store.geminiWeeklyTracker.currentCycle
-                )
-            }
-
-            if store.isClaudeEnabled {
-                if store.isCodexEnabled || store.isGeminiEnabled {
-                    Divider().padding(.horizontal, 4)
-                }
-                ClaudeQuotaView(
-                    snapshot: store.claudeSnapshot,
-                    error: store.claudeError,
-                    name: store.claudeName,
-                    lastUpdated: store.claudeLastUpdated,
-                    isRefreshing: store.isClaudeRefreshing,
-                    weeklyCycle: store.claudeWeeklyTracker.currentCycle
-                )
+                section(for: kind)
             }
 
             if !anyProviderEnabled {
@@ -110,10 +85,48 @@ struct UsagePopover: View {
                     actionTitle: "Open Settings…",
                     action: openSettings
                 )
+            } else if store.allEnabledProvidersHiddenFromPopover {
+                StatusCard(
+                    title: "All providers hidden",
+                    detail: "Turn on Show in Popover for a provider in Settings.",
+                    symbol: "eye.slash",
+                    actionTitle: "Open Settings…",
+                    action: openSettings
+                )
             }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 16)
+    }
+
+    @ViewBuilder
+    private func section(for kind: ProviderKind) -> some View {
+        switch kind {
+        case .codex:
+            codexSection
+        case .gemini:
+            GeminiQuotaView(
+                snapshot: store.geminiSnapshot,
+                error: store.geminiError,
+                name: store.geminiName,
+                lastUpdated: store.geminiLastUpdated,
+                isRefreshing: store.isGeminiRefreshing,
+                weeklyCycle: store.showDailyUsageInPopover ? store.geminiWeeklyTracker.currentCycle : nil,
+                showsResetTime: store.showResetTimeInPopover,
+                showsLastUpdated: store.showLastUpdatedInPopover
+            )
+        case .claude:
+            ClaudeQuotaView(
+                snapshot: store.claudeSnapshot,
+                error: store.claudeError,
+                name: store.claudeName,
+                lastUpdated: store.claudeLastUpdated,
+                isRefreshing: store.isClaudeRefreshing,
+                weeklyCycle: store.showDailyUsageInPopover ? store.claudeWeeklyTracker.currentCycle : nil,
+                showsResetTime: store.showResetTimeInPopover,
+                showsLastUpdated: store.showLastUpdatedInPopover
+            )
+        }
     }
 
     private var codexSection: some View {
@@ -132,8 +145,10 @@ struct UsagePopover: View {
                             if index > 0 { Divider().padding(.horizontal, 14) }
                             QuotaView(
                                 quota: quota,
-                                weeklyCycle: quota.durationMinutes == 10080 ? store.weeklyTracker.currentCycle : nil,
-                                isStale: store.error != nil
+                                weeklyCycle: quota.durationMinutes == 10080 && store.showDailyUsageInPopover
+                                    ? store.weeklyTracker.currentCycle : nil,
+                                isStale: store.error != nil,
+                                showsResetTime: store.showResetTimeInPopover
                             )
                         }
                     }
@@ -161,7 +176,7 @@ struct UsagePopover: View {
                 statusMessage("Checking \(store.codexName) usage…", detail: "Reading usage from the codex CLI.", symbol: "hourglass")
             }
 
-            if let updated = store.lastUpdated {
+            if store.showLastUpdatedInPopover, let updated = store.lastUpdated {
                 UpdatedFooter(date: updated, hasError: store.error != nil)
             }
         }
@@ -185,6 +200,7 @@ private struct QuotaView: View {
     let quota: Quota
     var weeklyCycle: WeeklyUsageCycle? = nil
     var isStale: Bool = false
+    var showsResetTime: Bool = true
 
     var body: some View {
         UsageMeterRow(
@@ -193,7 +209,8 @@ private struct QuotaView: View {
             remainingFraction: quota.remainingFraction,
             resetDate: quota.resetDate,
             weeklyCycle: quota.durationMinutes == 10080 ? weeklyCycle : nil,
-            isStale: isStale
+            isStale: isStale,
+            showsResetTime: showsResetTime
         )
     }
 }

@@ -73,6 +73,8 @@ struct Fixture {
     var disabled: Set<ProviderKind> = []
     /// Records several days of observations so the weekly histogram renders realistically.
     var weeklyHistory = false
+    /// Applies non-default settings before the first refresh.
+    var configure: @MainActor (UsageStore) -> Void = { _ in }
 }
 
 @main
@@ -109,7 +111,38 @@ struct RenderUI {
             {"rateLimits":{"primary":{"usedPercent":62,"windowDurationMins":10080,"resetsAt":\(weeklyReset)}}}
             """, disabled: [.gemini, .claude], weeklyHistory: true),
             Fixture(name: "claude-only", json: twoLimits, disabled: [.codex, .gemini]),
-            Fixture(name: "no-providers", json: twoLimits, disabled: [.codex, .gemini, .claude])
+            Fixture(name: "no-providers", json: twoLimits, disabled: [.codex, .gemini, .claude]),
+            // Popover in a custom order with every optional detail hidden; the menu bar has its own order.
+            Fixture(name: "custom-order-minimal", json: twoLimits, weeklyHistory: true) { store in
+                store.popoverOrder = [.claude, .codex, .gemini]
+                store.menuBarOrder = [.gemini, .claude, .codex]
+                store.showDailyUsageInPopover = false
+                store.showResetTimeInPopover = false
+                store.showLastUpdatedInPopover = false
+            },
+            // Only the reset time is hidden; the chart and the footer stay.
+            Fixture(name: "no-reset-time", json: twoLimits, weeklyHistory: true) { store in
+                store.showResetTimeInPopover = false
+            },
+            // Order lists with "Off" and "Hidden" tags; the popover skips the disabled provider.
+            Fixture(name: "order-tags", json: twoLimits, disabled: [.gemini]) { store in
+                store.popoverOrder = [.claude, .gemini, .codex]
+                store.menuBarOrder = [.claude, .gemini, .codex]
+                store.showClaudeInMenuBar = false
+                store.showDailyUsageInPopover = false
+                store.showLastUpdatedInPopover = false
+            },
+            // Codex is hidden from the popover only: the popover starts with Gemini, while Codex stays
+            // in the menu bar and is tagged "Hidden" in the popover order list.
+            Fixture(name: "popover-hidden-one", json: twoLimits) { store in
+                store.showCodexInPopover = false
+            },
+            // Every enabled provider is hidden from the popover.
+            Fixture(name: "all-hidden", json: twoLimits) { store in
+                store.showCodexInPopover = false
+                store.showGeminiInPopover = false
+                store.showClaudeInPopover = false
+            }
         ]
         for fixture in fixtures {
             let name = fixture.name
@@ -128,6 +161,7 @@ struct RenderUI {
             store.isCodexEnabled = !fixture.disabled.contains(.codex)
             store.isGeminiEnabled = !fixture.disabled.contains(.gemini)
             store.isClaudeEnabled = !fixture.disabled.contains(.claude)
+            fixture.configure(store)
             if fixture.weeklyHistory {
                 recordWeeklyHistory(store.weeklyTracker, resetsAt: Int64(weeklyReset))
             }
@@ -138,6 +172,10 @@ struct RenderUI {
             for dark in [false, true] {
                 let suffix = dark ? "dark" : "light"
                 try render(UsagePopover(store: store), name: "\(name)-\(suffix)", dark: dark, output: output)
+                if ["custom-order-minimal", "no-reset-time", "order-tags", "popover-hidden-one"].contains(name) {
+                    // The popover scrolls; also show its last section, dividers, and footers.
+                    try render(UsagePopover(store: store), name: "\(name)-end-\(suffix)", dark: dark, output: output, scrollsToEnd: true)
+                }
                 if name == "two-limits" {
                     let loginService = RenderLoginItemService()
                     let login = LaunchAtLoginStore(service: loginService)
@@ -163,14 +201,37 @@ struct RenderUI {
                     try render(SettingsView(store: store, launchAtLogin: login, initialTab: .gemini),
                                name: "settings-gemini-off-\(suffix)", dark: dark, output: output)
                 }
+                if name == "popover-hidden-one" {
+                    let login = LaunchAtLoginStore(service: RenderLoginItemService())
+                    try render(SettingsView(store: store, launchAtLogin: login, initialTab: .codex),
+                               name: "settings-codex-popover-hidden-\(suffix)", dark: dark, output: output)
+                    try render(SettingsView(store: store, launchAtLogin: login),
+                               name: "settings-general-popover-hidden-\(suffix)", dark: dark, output: output, scrollsToEnd: true)
+                    try render(MenuBarSnapshotView(columns: MenuBarLayout.organizeColumns(items: store.menuBarItems)).padding(6),
+                               name: "menubar-popover-hidden-\(suffix)", dark: dark, output: output)
+                }
+                if name == "custom-order-minimal" {
+                    try render(MenuBarSnapshotView(columns: MenuBarLayout.organizeColumns(items: store.menuBarItems)).padding(6),
+                               name: "menubar-custom-order-\(suffix)", dark: dark, output: output)
+                }
+                if name == "order-tags" {
+                    let login = LaunchAtLoginStore(service: RenderLoginItemService())
+                    try render(SettingsView(store: store, launchAtLogin: login),
+                               name: "settings-general-order-\(suffix)", dark: dark, output: output)
+                    try render(SettingsView(store: store, launchAtLogin: login),
+                               name: "settings-general-order-bottom-\(suffix)", dark: dark, output: output, scrollsToEnd: true)
+                }
             }
-            if name == "two-limits" || name == "codex-only" {
+            if name == "two-limits" || name == "codex-only" || name == "custom-order-minimal" {
                 client.isConnected = false
                 client.onDisconnect?(.connectionClosed)
                 let staleName = name == "two-limits" ? "stale" : "\(name)-stale"
                 for dark in [false, true] {
                     let suffix = dark ? "dark" : "light"
                     try render(UsagePopover(store: store), name: "\(staleName)-\(suffix)", dark: dark, output: output)
+                    if name == "custom-order-minimal" {
+                        try render(UsagePopover(store: store), name: "\(staleName)-end-\(suffix)", dark: dark, output: output, scrollsToEnd: true)
+                    }
                     if name == "two-limits" {
                         let login = LaunchAtLoginStore(service: RenderLoginItemService())
                         try render(SettingsView(store: store, launchAtLogin: login, initialTab: .codex),
@@ -202,7 +263,14 @@ struct RenderUI {
     }
 
     @MainActor
-    static func render<V: View>(_ view: V, name: String, dark: Bool, output: URL) throws {
+    static func scrollViews(in view: NSView) -> [NSScrollView] {
+        ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap { scrollViews(in: $0) }
+    }
+
+    /// `scrollsToEnd` scrolls every scroll view to its end first, to show the part of a Settings
+    /// tab that the fixed-size window clips.
+    @MainActor
+    static func render<V: View>(_ view: V, name: String, dark: Bool, output: URL, scrollsToEnd: Bool = false) throws {
         NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         let root = view.environment(\.locale, Locale(identifier: "en"))
             .environment(\.colorScheme, dark ? .dark : .light)
@@ -215,6 +283,19 @@ struct RenderUI {
         let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.contentView = host
         host.layoutSubtreeIfNeeded()
+        if scrollsToEnd {
+            for scrollView in scrollViews(in: host) {
+                guard let document = scrollView.documentView else { continue }
+                // Keep the overlay style used before scrolling, so the content keeps its width.
+                scrollView.scrollerStyle = .overlay
+                let clip = scrollView.contentView
+                let end = max(0, document.frame.height - clip.bounds.height)
+                clip.scroll(to: NSPoint(x: clip.bounds.minX, y: document.isFlipped ? end : 0))
+                scrollView.reflectScrolledClipView(clip)
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            host.layoutSubtreeIfNeeded()
+        }
         let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
         host.cacheDisplay(in: host.bounds, to: rep)
         try rep.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name + ".png"))

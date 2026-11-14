@@ -8,6 +8,8 @@ struct GeminiQuotaView: View {
     let lastUpdated: Date?
     let isRefreshing: Bool
     var weeklyCycle: WeeklyUsageCycle? = nil
+    var showsResetTime: Bool = true
+    var showsLastUpdated: Bool = true
 
     var body: some View {
         VStack(spacing: 12) {
@@ -43,7 +45,8 @@ struct GeminiQuotaView: View {
                                             bucket: bucket,
                                             // The tracker records `weeklyBucket`, so only that row gets the histogram.
                                             weeklyCycle: bucket.id == snapshot.weeklyBucket?.id ? weeklyCycle : nil,
-                                            isStale: error != nil
+                                            isStale: error != nil,
+                                            showsResetTime: showsResetTime
                                         )
                                     }
                                 }
@@ -60,7 +63,7 @@ struct GeminiQuotaView: View {
                 )
             }
 
-            if let lastUpdated {
+            if showsLastUpdated, let lastUpdated {
                 UpdatedFooter(date: lastUpdated, hasError: error != nil)
             }
         }
@@ -71,6 +74,7 @@ private struct GeminiBucketRow: View {
     let bucket: GeminiUsageSnapshot.Bucket
     var weeklyCycle: WeeklyUsageCycle? = nil
     var isStale: Bool = false
+    var showsResetTime: Bool = true
 
     var body: some View {
         UsageMeterRow(
@@ -79,7 +83,8 @@ private struct GeminiBucketRow: View {
             remainingFraction: bucket.remainingFraction,
             resetDate: bucket.resetTime,
             weeklyCycle: weeklyCycle,
-            isStale: isStale
+            isStale: isStale,
+            showsResetTime: showsResetTime
         )
     }
 }

@@ -536,6 +536,208 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertTrue(store.menuBarItems.isEmpty)
     }
 
+    func testMenuBarItemsFollowTheMenuBarOrderOnly() async throws {
+        let store = makeStore(Connection())
+        XCTAssertEqual(store.menuBarItems.map(\.id), ["codex", "gemini", "claude"])
+        store.menuBarOrder = [.claude, .codex, .gemini]
+        XCTAssertEqual(store.menuBarItems.map(\.id), ["claude", "codex", "gemini"])
+        XCTAssertEqual(store.menuBarItems.map(\.label), ["Claude", "Codex", "Gemini"])
+        store.popoverOrder = [.gemini, .claude, .codex]
+        XCTAssertEqual(store.menuBarItems.map(\.id), ["claude", "codex", "gemini"], "The popover order must not affect the menu bar")
+        store.showCodexInMenuBar = false
+        store.isGeminiEnabled = false
+        XCTAssertEqual(store.menuBarItems.map(\.id), ["claude"])
+    }
+
+    func testMenuBarFallbackPicksTheFirstEnabledProviderInMenuBarOrder() async throws {
+        let store = makeStore(Connection())
+        store.menuBarOrder = [.claude, .gemini, .codex]
+        store.showCodexInMenuBar = false
+        store.showGeminiInMenuBar = false
+        store.showClaudeInMenuBar = false
+        XCTAssertEqual(store.menuBarItems.map(\.id), ["claude"])
+        store.isClaudeEnabled = false
+        XCTAssertEqual(store.menuBarItems.map(\.id), ["gemini"])
+        store.isGeminiEnabled = false
+        XCTAssertEqual(store.menuBarItems.map(\.id), ["codex"])
+    }
+
+    func testProviderOrdersAndPopoverElementsDefaultAndPersist() async throws {
+        let defaults = makeDefaults()
+        func makeStore() -> UsageStore {
+            UsageStore(client: Connection(), geminiClient: CountingGemini(), claudeClient: CountingClaude(),
+                       defaults: defaults, legacySuiteName: nil,
+                       locate: { _ in URL(fileURLWithPath: "/usr/bin/true") })
+        }
+        let store = makeStore()
+        XCTAssertEqual(store.menuBarOrder, [.codex, .gemini, .claude])
+        XCTAssertEqual(store.popoverOrder, [.codex, .gemini, .claude])
+        XCTAssertTrue(store.showDailyUsageInPopover)
+        XCTAssertTrue(store.showResetTimeInPopover)
+        XCTAssertTrue(store.showLastUpdatedInPopover)
+
+        store.menuBarOrder = [.gemini, .claude, .codex]
+        store.popoverOrder = [.claude, .codex, .gemini]
+        store.showDailyUsageInPopover = false
+        store.showResetTimeInPopover = false
+        store.showLastUpdatedInPopover = false
+        XCTAssertEqual(defaults.stringArray(forKey: "menuBarOrder"), ["gemini", "claude", "codex"])
+        XCTAssertEqual(defaults.stringArray(forKey: "popoverOrder"), ["claude", "codex", "gemini"])
+
+        let reloaded = makeStore()
+        XCTAssertEqual(reloaded.menuBarOrder, [.gemini, .claude, .codex])
+        XCTAssertEqual(reloaded.popoverOrder, [.claude, .codex, .gemini])
+        XCTAssertFalse(reloaded.showDailyUsageInPopover)
+        XCTAssertFalse(reloaded.showResetTimeInPopover)
+        XCTAssertFalse(reloaded.showLastUpdatedInPopover)
+        XCTAssertEqual(reloaded.menuBarItems.map(\.id), ["gemini", "claude", "codex"])
+
+        reloaded.showResetTimeInPopover = true
+        XCTAssertTrue(makeStore().showResetTimeInPopover)
+    }
+
+    func testStoredOrdersAreNormalizedOnLoad() async throws {
+        let defaults = makeDefaults()
+        defaults.set(["claude", "openai", "claude"], forKey: "menuBarOrder")
+        defaults.set(["gemini", 7, "codex"] as [Any], forKey: "popoverOrder")
+        let store = UsageStore(client: Connection(), geminiClient: CountingGemini(), claudeClient: CountingClaude(),
+                               defaults: defaults, legacySuiteName: nil,
+                               locate: { _ in URL(fileURLWithPath: "/usr/bin/true") })
+        XCTAssertEqual(store.menuBarOrder, [.claude, .codex, .gemini])
+        XCTAssertEqual(store.popoverOrder, [.gemini, .codex, .claude])
+
+        defaults.set("claude", forKey: "menuBarOrder")
+        let fallback = UsageStore(client: Connection(), geminiClient: CountingGemini(), claudeClient: CountingClaude(),
+                                  defaults: defaults, legacySuiteName: nil,
+                                  locate: { _ in URL(fileURLWithPath: "/usr/bin/true") })
+        XCTAssertEqual(fallback.menuBarOrder, [.codex, .gemini, .claude], "A malformed value falls back to the default order")
+    }
+
+    func testSettingAnIncompleteOrderNormalizesAndPersistsIt() async throws {
+        let defaults = makeDefaults()
+        let store = UsageStore(client: Connection(), geminiClient: CountingGemini(), claudeClient: CountingClaude(),
+                               defaults: defaults, legacySuiteName: nil,
+                               locate: { _ in URL(fileURLWithPath: "/usr/bin/true") })
+        store.menuBarOrder = [.claude, .claude]
+        XCTAssertEqual(store.menuBarOrder, [.claude, .codex, .gemini])
+        XCTAssertEqual(defaults.stringArray(forKey: "menuBarOrder"), ["claude", "codex", "gemini"])
+        store.popoverOrder = []
+        XCTAssertEqual(store.popoverOrder, [.codex, .gemini, .claude])
+        XCTAssertEqual(defaults.stringArray(forKey: "popoverOrder"), ["codex", "gemini", "claude"])
+    }
+
+    func testShowInPopoverDefaultsOnAndPersists() async throws {
+        let defaults = makeDefaults()
+        func makeStore() -> UsageStore {
+            UsageStore(client: Connection(), geminiClient: CountingGemini(), claudeClient: CountingClaude(),
+                       defaults: defaults, legacySuiteName: nil,
+                       locate: { _ in URL(fileURLWithPath: "/usr/bin/true") })
+        }
+        let store = makeStore()
+        XCTAssertTrue(store.showCodexInPopover)
+        XCTAssertTrue(store.showGeminiInPopover)
+        XCTAssertTrue(store.showClaudeInPopover)
+
+        store.showCodexInPopover = false
+        store.showClaudeInPopover = false
+        XCTAssertEqual(defaults.object(forKey: "popoverShowCodex") as? Bool, false)
+        XCTAssertNil(defaults.object(forKey: "popoverShowGemini"))
+        XCTAssertEqual(defaults.object(forKey: "popoverShowClaude") as? Bool, false)
+
+        let reloaded = makeStore()
+        XCTAssertFalse(reloaded.showCodexInPopover)
+        XCTAssertTrue(reloaded.showGeminiInPopover)
+        XCTAssertFalse(reloaded.showClaudeInPopover)
+        XCTAssertEqual(ProviderKind.allCases.map(reloaded.isShownInPopover), [false, true, false])
+
+        reloaded.showCodexInPopover = true
+        XCTAssertTrue(makeStore().showCodexInPopover)
+    }
+
+    func testPopoverProvidersAreEnabledAndShownInPopoverOrder() async throws {
+        let store = makeStore(Connection())
+        XCTAssertEqual(store.popoverProviders, [.codex, .gemini, .claude])
+        store.popoverOrder = [.claude, .codex, .gemini]
+        XCTAssertEqual(store.popoverProviders, [.claude, .codex, .gemini])
+        store.menuBarOrder = [.gemini, .claude, .codex]
+        XCTAssertEqual(store.popoverProviders, [.claude, .codex, .gemini], "The menu bar order must not affect the popover")
+        store.showCodexInPopover = false
+        XCTAssertEqual(store.popoverProviders, [.claude, .gemini])
+        store.isGeminiEnabled = false
+        XCTAssertEqual(store.popoverProviders, [.claude])
+        store.showClaudeInMenuBar = false
+        XCTAssertEqual(store.popoverProviders, [.claude], "Menu bar visibility must not affect the popover")
+    }
+
+    func testProviderHiddenFromPopoverIsStillPolledAndShownInMenuBar() async throws {
+        let connection = Connection()
+        let gemini = CountingGemini()
+        let claude = CountingClaude()
+        let store = makeStore(connection, gemini: gemini, claude: claude)
+        store.showCodexInPopover = false
+        store.showGeminiInPopover = false
+        store.showClaudeInPopover = false
+        XCTAssertEqual(store.menuBarItems.map(\.id), ["codex", "gemini", "claude"])
+
+        store.start()
+        await waitUntil { connection.reads == 1 && gemini.reads == 1 && claude.reads == 1 }
+        connection.complete(.success(try snapshot()))
+        await waitUntil { !store.isRefreshing && !store.isGeminiRefreshing && !store.isClaudeRefreshing }
+        XCTAssertEqual(codexValue(store), "3%")
+
+        // A manual refresh still reads every enabled provider.
+        store.refresh()
+        await waitUntil { connection.reads == 2 && gemini.reads == 2 && claude.reads == 2 }
+        await store.stop()
+    }
+
+    func testOrderTagsPreferOffOverHidden() async throws {
+        let store = makeStore(Connection())
+        XCTAssertEqual(ProviderKind.allCases.map(store.menuBarOrderTag(for:)), [nil, nil, nil])
+        XCTAssertEqual(ProviderKind.allCases.map(store.popoverOrderTag(for:)), [nil, nil, nil])
+
+        store.showGeminiInMenuBar = false
+        store.showClaudeInPopover = false
+        XCTAssertEqual(ProviderKind.allCases.map(store.menuBarOrderTag(for:)), [nil, "Hidden", nil])
+        XCTAssertEqual(ProviderKind.allCases.map(store.popoverOrderTag(for:)), [nil, nil, "Hidden"])
+
+        store.showCodexInMenuBar = false
+        store.showCodexInPopover = false
+        store.isCodexEnabled = false
+        store.isClaudeEnabled = false
+        XCTAssertEqual(ProviderKind.allCases.map(store.menuBarOrderTag(for:)), ["Off", "Hidden", "Off"])
+        XCTAssertEqual(ProviderKind.allCases.map(store.popoverOrderTag(for:)), ["Off", nil, "Off"])
+    }
+
+    func testAllEnabledProvidersHiddenFromPopover() async throws {
+        let store = makeStore(Connection())
+        XCTAssertFalse(store.allEnabledProvidersHiddenFromPopover)
+        store.showCodexInPopover = false
+        store.showGeminiInPopover = false
+        XCTAssertFalse(store.allEnabledProvidersHiddenFromPopover, "Claude is still shown")
+        store.isClaudeEnabled = false
+        XCTAssertTrue(store.allEnabledProvidersHiddenFromPopover, "Only hidden providers remain enabled")
+        XCTAssertTrue(store.popoverProviders.isEmpty)
+        store.isCodexEnabled = false
+        store.isGeminiEnabled = false
+        XCTAssertFalse(store.allEnabledProvidersHiddenFromPopover, "Nothing enabled is a different empty state")
+        store.isGeminiEnabled = true
+        XCTAssertTrue(store.allEnabledProvidersHiddenFromPopover)
+        store.showGeminiInPopover = true
+        XCTAssertFalse(store.allEnabledProvidersHiddenFromPopover)
+        XCTAssertEqual(store.popoverProviders, [.gemini])
+    }
+
+    func testProviderLookupsMatchThePerProviderProperties() async throws {
+        let store = makeStore(Connection())
+        store.claudeLabel = "Work"
+        store.isGeminiEnabled = false
+        store.showClaudeInMenuBar = false
+        XCTAssertEqual(ProviderKind.allCases.map(store.name(for:)), ["Codex", "Gemini", "Work"])
+        XCTAssertEqual(ProviderKind.allCases.map(store.isEnabled), [true, false, true])
+        XCTAssertEqual(ProviderKind.allCases.map(store.isShownInMenuBar), [true, true, false])
+    }
+
     func testFailingProvidersBackOff() async throws {
         let store = makeStore(Connection())
         XCTAssertEqual(store.retryDelay(failures: 0), 60)

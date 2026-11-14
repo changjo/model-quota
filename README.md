@@ -6,8 +6,8 @@ This is an independent project, not an official OpenAI or Google product.
 
 The menu bar shows remaining percentages in a clean 2-row grid. Click it for quota details. The interface uses native macOS controls, system fonts, and light and dark appearances.
 
-- Menu bar: left-aligned labels (`Codex`, `Gemini`, `Claude`) with right-aligned percentages (`74%`, `81%`), up to two rows per column. A provider whose last read failed shows `?`.
-- Popover: details for Codex, Gemini (Antigravity `agy`), and Claude Code. It shows the remaining percentage, colored orange at 25% or less and red at 10% or less with a warning symbol. It also shows reset countdowns and a daily usage histogram labeled by weekday. Last known values are dimmed while a provider is failing.
+- Menu bar: left-aligned labels (`Codex`, `Gemini`, `Claude`) with right-aligned percentages (`74%`, `81%`), up to two rows per column, in the order you choose. A provider whose last read failed shows `?`.
+- Popover: details for Codex, Gemini (Antigravity `agy`), and Claude Code, in their own order. It shows the remaining percentage, colored orange at 25% or less and red at 10% or less with a warning symbol. It also shows reset countdowns, a daily usage histogram labeled by weekday, and when each provider was last updated; each of these can be hidden. Last known values are dimmed while a provider is failing.
 - Turn each provider on or off. A disabled provider is hidden and never run.
 - Manual refresh, launch at login, configurable executable paths, and quit controls.
 - Refreshes at startup and in background with zero credentials leaked.
@@ -56,10 +56,14 @@ The current binary has been tested on Apple Silicon with macOS 27, native Codex 
 
 Open **Settings…** from the popover or press **⌘,** while the app is active. Opening an already-running app from Finder also shows Settings. Settings has four tabs:
 
-- **General**: Launch at Login, the menu bar Limit Format, and the app version, which is read from the installed bundle.
+- **General**: Launch at Login, the menu bar and popover options below, and the app version, which is read from the installed bundle.
+  - **Menu Bar**: the Limit Format and the provider **Order**. Providers fill the menu bar in this order, two rows per column. If every enabled provider is hidden from the menu bar, the first enabled provider in this order is shown.
+  - **Popover**: switches for the **Daily Usage chart**, **Reset time**, and **Last updated** details (all on by default; they apply to every provider), and a separate provider **Order** for the popover sections. Every visible section always shows its remaining percentages, bars, and error messages; a provider hidden from the popover but shown in the menu bar still shows `?` there when its read fails. If every enabled provider is hidden from the popover, it says so and offers **Open Settings…** instead of showing one anyway.
+  - Reorder providers with the up and down arrow buttons next to each name. A provider that is turned off is tagged **Off**. One hidden from the menu bar (in the Menu Bar list) or from the popover (in the Popover list) is tagged **Hidden**. Both stay in the lists, dimmed, so you can arrange them in advance.
 - **Codex**, **Gemini**, and **Claude**: each tab has these controls.
   - **Enabled**: when off, the provider is hidden from the popover and menu bar, and its CLI is never run.
   - **Show in Menu Bar** and the menu bar label. An empty label uses the provider name.
+  - **Show in Popover**: when off, the provider's section is left out of the popover. Its usage is still checked and still shown in the menu bar, and **Refresh** still refreshes it.
   - Connection status with **Refresh Now**.
   - The executable path.
 

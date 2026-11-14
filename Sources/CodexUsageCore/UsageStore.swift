@@ -52,6 +52,16 @@ public final class UsageStore: ObservableObject {
     @Published public var showClaudeInMenuBar: Bool {
         didSet { defaults.set(showClaudeInMenuBar, forKey: "menuBarShowClaude") }
     }
+    // Popover visibility only removes a section; the provider is still polled and shown in the menu bar.
+    @Published public var showCodexInPopover: Bool {
+        didSet { defaults.set(showCodexInPopover, forKey: "popoverShowCodex") }
+    }
+    @Published public var showGeminiInPopover: Bool {
+        didSet { defaults.set(showGeminiInPopover, forKey: "popoverShowGemini") }
+    }
+    @Published public var showClaudeInPopover: Bool {
+        didSet { defaults.set(showClaudeInPopover, forKey: "popoverShowClaude") }
+    }
     @Published public var codexLabel: String {
         didSet { defaults.set(codexLabel, forKey: "serviceLabelCodex") }
     }
@@ -63,6 +73,33 @@ public final class UsageStore: ObservableObject {
     }
     @Published public var menuBarDisplayMode: MenuBarDisplayMode {
         didSet { defaults.set(menuBarDisplayMode.rawValue, forKey: "menuBarDisplayMode") }
+    }
+    /// Menu bar cells fill in this order; the popover has its own order.
+    /// Assigning an unnormalized order re-enters `didSet` exactly once: normalizing is idempotent,
+    /// so the second pass finds nothing to change and only persists the result.
+    @Published public var menuBarOrder: [ProviderKind] {
+        didSet {
+            let normalized = ProviderOrder.normalized(menuBarOrder)
+            if normalized != menuBarOrder { menuBarOrder = normalized }
+            defaults.set(menuBarOrder.map(\.rawValue), forKey: "menuBarOrder")
+        }
+    }
+    @Published public var popoverOrder: [ProviderKind] {
+        didSet {
+            let normalized = ProviderOrder.normalized(popoverOrder)
+            if normalized != popoverOrder { popoverOrder = normalized }
+            defaults.set(popoverOrder.map(\.rawValue), forKey: "popoverOrder")
+        }
+    }
+    // Optional popover details, applied to every provider section.
+    @Published public var showDailyUsageInPopover: Bool {
+        didSet { defaults.set(showDailyUsageInPopover, forKey: "popoverShowDailyUsage") }
+    }
+    @Published public var showResetTimeInPopover: Bool {
+        didSet { defaults.set(showResetTimeInPopover, forKey: "popoverShowResetTime") }
+    }
+    @Published public var showLastUpdatedInPopover: Bool {
+        didSet { defaults.set(showLastUpdatedInPopover, forKey: "popoverShowLastUpdated") }
     }
 
     public let weeklyTracker: WeeklyUsageTracker
@@ -131,6 +168,14 @@ public final class UsageStore: ObservableObject {
         self.claudeLabel = defaults.string(forKey: "serviceLabelClaude") ?? legacy?.string(forKey: "serviceLabelClaude") ?? "Claude"
         let modeRaw = defaults.string(forKey: "menuBarDisplayMode") ?? legacy?.string(forKey: "menuBarDisplayMode") ?? MenuBarDisplayMode.both.rawValue
         self.menuBarDisplayMode = MenuBarDisplayMode(rawValue: modeRaw) ?? .both
+        self.menuBarOrder = ProviderOrder.normalized(rawValues: (defaults.array(forKey: "menuBarOrder") ?? []).compactMap { $0 as? String })
+        self.popoverOrder = ProviderOrder.normalized(rawValues: (defaults.array(forKey: "popoverOrder") ?? []).compactMap { $0 as? String })
+        self.showCodexInPopover = defaults.object(forKey: "popoverShowCodex") as? Bool ?? true
+        self.showGeminiInPopover = defaults.object(forKey: "popoverShowGemini") as? Bool ?? true
+        self.showClaudeInPopover = defaults.object(forKey: "popoverShowClaude") as? Bool ?? true
+        self.showDailyUsageInPopover = defaults.object(forKey: "popoverShowDailyUsage") as? Bool ?? true
+        self.showResetTimeInPopover = defaults.object(forKey: "popoverShowResetTime") as? Bool ?? true
+        self.showLastUpdatedInPopover = defaults.object(forKey: "popoverShowLastUpdated") as? Bool ?? true
         self.isCodexEnabled = defaults.object(forKey: "providerEnabledCodex") as? Bool ?? true
         self.isGeminiEnabled = defaults.object(forKey: "providerEnabledGemini") as? Bool ?? true
         self.isClaudeEnabled = defaults.object(forKey: "providerEnabledClaude") as? Bool ?? true
@@ -192,6 +237,30 @@ public final class UsageStore: ObservableObject {
         return trimmed.isEmpty ? name : trimmed
     }
 
+    public func name(for kind: ProviderKind) -> String {
+        switch kind {
+        case .codex: return codexName
+        case .gemini: return geminiName
+        case .claude: return claudeName
+        }
+    }
+
+    public func isEnabled(_ kind: ProviderKind) -> Bool {
+        switch kind {
+        case .codex: return isCodexEnabled
+        case .gemini: return isGeminiEnabled
+        case .claude: return isClaudeEnabled
+        }
+    }
+
+    public func isShownInMenuBar(_ kind: ProviderKind) -> Bool {
+        switch kind {
+        case .codex: return showCodexInMenuBar
+        case .gemini: return showGeminiInMenuBar
+        case .claude: return showClaudeInMenuBar
+        }
+    }
+
     /// Menu bar text for one provider. A failed read shows "?" even when an older value exists:
     /// the menu bar cannot mark a value as stale, so it must not present it as current.
     private static func summary(_ value: String?, refreshing: Bool, failed: Bool) -> String {
@@ -199,29 +268,58 @@ public final class UsageStore: ObservableObject {
         return value ?? (refreshing ? "…" : "?")
     }
 
-    public var menuBarItems: [ProviderUsageItem] {
-        let mode = menuBarDisplayMode
-        let codex = isCodexEnabled ? ProviderUsageItem(
-            id: "codex", label: codexName,
-            summaryValue: Self.summary(snapshot?.formattedValue(for: mode), refreshing: isRefreshing, failed: error != nil),
-            isRefreshing: isRefreshing, hasError: error != nil) : nil
-        let gemini = isGeminiEnabled ? ProviderUsageItem(
-            id: "gemini", label: geminiName,
-            summaryValue: Self.summary(geminiSnapshot?.formattedValue(for: mode), refreshing: isGeminiRefreshing, failed: geminiError != nil),
-            isRefreshing: isGeminiRefreshing, hasError: geminiError != nil) : nil
-        let claude = isClaudeEnabled ? ProviderUsageItem(
-            id: "claude", label: claudeName,
-            summaryValue: Self.summary(claudeSnapshot?.formattedValue(for: mode), refreshing: isClaudeRefreshing, failed: claudeError != nil),
-            isRefreshing: isClaudeRefreshing, hasError: claudeError != nil) : nil
+    public func isShownInPopover(_ kind: ProviderKind) -> Bool {
+        switch kind {
+        case .codex: return showCodexInPopover
+        case .gemini: return showGeminiInPopover
+        case .claude: return showClaudeInPopover
+        }
+    }
 
-        let shown = [
-            showCodexInMenuBar ? codex : nil,
-            showGeminiInMenuBar ? gemini : nil,
-            showClaudeInMenuBar ? claude : nil
-        ].compactMap { $0 }
-        if !shown.isEmpty { return shown }
+    /// Popover sections: enabled providers shown in the popover, in popover order.
+    public var popoverProviders: [ProviderKind] {
+        popoverOrder.filter { isEnabled($0) && isShownInPopover($0) }
+    }
+
+    /// Some provider is enabled, but every enabled one is hidden from the popover. Unlike the menu
+    /// bar, the popover does not fall back to showing one; it explains the empty state instead.
+    public var allEnabledProvidersHiddenFromPopover: Bool {
+        ProviderKind.allCases.contains { isEnabled($0) } && popoverProviders.isEmpty
+    }
+
+    /// Settings order-list tag: "Off" for a disabled provider, else "Hidden" when not in the menu bar.
+    public func menuBarOrderTag(for kind: ProviderKind) -> String? {
+        !isEnabled(kind) ? "Off" : (isShownInMenuBar(kind) ? nil : "Hidden")
+    }
+
+    /// Settings order-list tag: "Off" for a disabled provider, else "Hidden" when not in the popover.
+    public func popoverOrderTag(for kind: ProviderKind) -> String? {
+        !isEnabled(kind) ? "Off" : (isShownInPopover(kind) ? nil : "Hidden")
+    }
+
+    public var menuBarItems: [ProviderUsageItem] {
+        let enabled = menuBarOrder.filter(isEnabled)
+        let shown = enabled.filter(isShownInMenuBar)
         // Never leave the menu bar empty while a provider is enabled: show the first one.
-        return [codex, gemini, claude].compactMap { $0 }.prefix(1).map { $0 }
+        return (shown.isEmpty ? Array(enabled.prefix(1)) : shown).map(menuBarItem)
+    }
+
+    private func menuBarItem(for kind: ProviderKind) -> ProviderUsageItem {
+        let mode = menuBarDisplayMode
+        let value: String?
+        let refreshing: Bool
+        let failed: Bool
+        switch kind {
+        case .codex:
+            (value, refreshing, failed) = (snapshot?.formattedValue(for: mode), isRefreshing, error != nil)
+        case .gemini:
+            (value, refreshing, failed) = (geminiSnapshot?.formattedValue(for: mode), isGeminiRefreshing, geminiError != nil)
+        case .claude:
+            (value, refreshing, failed) = (claudeSnapshot?.formattedValue(for: mode), isClaudeRefreshing, claudeError != nil)
+        }
+        return ProviderUsageItem(id: kind.rawValue, label: name(for: kind),
+                                 summaryValue: Self.summary(value, refreshing: refreshing, failed: failed),
+                                 isRefreshing: refreshing, hasError: failed)
     }
 
     /// Retry interval after `failures` consecutive failures: 60s doubling up to 5 minutes.

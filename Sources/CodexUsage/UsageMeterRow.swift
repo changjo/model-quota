@@ -11,6 +11,7 @@ struct UsageMeterRow: View {
     var weeklyCycle: WeeklyUsageCycle? = nil
     /// Last known values shown while the provider is failing; dimmed so they don't read as fresh.
     var isStale: Bool = false
+    var showsResetTime: Bool = true
 
     private var level: QuotaLevel { QuotaLevel(remainingPercent: remainingPercent) }
     /// Derived from the floored remaining value so the two numbers always add up to 100.
@@ -46,9 +47,11 @@ struct UsageMeterRow: View {
                     ProgressView(value: min(1, max(0, remainingFraction)))
                         .tint(tint)
                         .opacity(isStale ? 0.5 : 1)
-                    Label(Self.resetDescription(until: resetDate, now: context.date), systemImage: "clock")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    if showsResetTime {
+                        Label(Self.resetDescription(until: resetDate, now: context.date), systemImage: "clock")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(accessibilityDescription(now: context.date))
@@ -70,11 +73,14 @@ struct UsageMeterRow: View {
         case .critical: parts.append("critical")
         }
         parts.append("\(usedPercent) percent used")
-        if let resetDate {
-            let reset = Self.remainingTime(until: resetDate, now: now)
-            parts.append(reset.prefix(1).lowercased() + reset.dropFirst())
-        } else {
-            parts.append("reset time unavailable")
+        // VoiceOver reads only what is visible, so a hidden reset line is omitted here too.
+        if showsResetTime {
+            if let resetDate {
+                let reset = Self.remainingTime(until: resetDate, now: now)
+                parts.append(reset.prefix(1).lowercased() + reset.dropFirst())
+            } else {
+                parts.append("reset time unavailable")
+            }
         }
         if isStale { parts.append("last known usage") }
         return parts.joined(separator: ", ")

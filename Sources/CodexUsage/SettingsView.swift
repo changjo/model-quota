@@ -113,10 +113,25 @@ struct SettingsView: View {
                         Text(mode.title).tag(mode)
                     }
                 }
+                orderList("Menu bar order", order: $store.menuBarOrder) { store.menuBarOrderTag(for: $0) }
             } header: {
                 Text("Menu Bar")
             } footer: {
-                Text("Choose which limits each provider shows in the menu bar: both session and weekly, one of them, or only the most restrictive. Providers stack in up to 2 rows; more providers add a column.")
+                Text("Choose which limits each provider shows in the menu bar: both session and weekly, one of them, or only the most restrictive. Providers appear in the order above, in up to 2 rows; more providers add a column.")
+            }
+
+            Section {
+                Toggle("Daily Usage chart", isOn: $store.showDailyUsageInPopover)
+                    .toggleStyle(.switch)
+                Toggle("Reset time", isOn: $store.showResetTimeInPopover)
+                    .toggleStyle(.switch)
+                Toggle("Last updated", isOn: $store.showLastUpdatedInPopover)
+                    .toggleStyle(.switch)
+                orderList("Popover order", order: $store.popoverOrder) { store.popoverOrderTag(for: $0) }
+            } header: {
+                Text("Popover")
+            } footer: {
+                Text("Choose which details each provider section shows, and the order of the sections. Each section always shows remaining usage and errors. To hide a provider's section, turn off Show in Popover in its tab.")
             }
 
             Section("About") {
@@ -138,7 +153,8 @@ struct SettingsView: View {
     private var codexTab: some View {
         Form {
             providerSection(kind: .codex, isEnabled: $store.isCodexEnabled,
-                            showInMenuBar: $store.showCodexInMenuBar, label: $store.codexLabel)
+                            showInMenuBar: $store.showCodexInMenuBar, showInPopover: $store.showCodexInPopover,
+                            label: $store.codexLabel)
             statusSection(kind: .codex, name: store.codexName, isEnabled: store.isCodexEnabled,
                           isRefreshing: store.isRefreshing || store.isReconfiguring,
                           error: store.error, hasSnapshot: store.snapshot != nil,
@@ -158,7 +174,8 @@ struct SettingsView: View {
     private var geminiTab: some View {
         Form {
             providerSection(kind: .gemini, isEnabled: $store.isGeminiEnabled,
-                            showInMenuBar: $store.showGeminiInMenuBar, label: $store.geminiLabel)
+                            showInMenuBar: $store.showGeminiInMenuBar, showInPopover: $store.showGeminiInPopover,
+                            label: $store.geminiLabel)
             statusSection(kind: .gemini, name: store.geminiName, isEnabled: store.isGeminiEnabled,
                           isRefreshing: store.isGeminiRefreshing,
                           error: store.geminiError, hasSnapshot: store.geminiSnapshot != nil,
@@ -178,7 +195,8 @@ struct SettingsView: View {
     private var claudeTab: some View {
         Form {
             providerSection(kind: .claude, isEnabled: $store.isClaudeEnabled,
-                            showInMenuBar: $store.showClaudeInMenuBar, label: $store.claudeLabel)
+                            showInMenuBar: $store.showClaudeInMenuBar, showInPopover: $store.showClaudeInPopover,
+                            label: $store.claudeLabel)
             statusSection(kind: .claude, name: store.claudeName, isEnabled: store.isClaudeEnabled,
                           isRefreshing: store.isClaudeRefreshing,
                           error: store.claudeError, hasSnapshot: store.claudeSnapshot != nil,
@@ -195,10 +213,62 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
+    /// Providers in `order`, reordered with up/down buttons. Off or hidden providers stay listed, dimmed, so
+    /// they can be arranged in advance. Drag reordering is not offered: `.onMove` was not confirmed to
+    /// work reliably inside a grouped `Form` on macOS 14.
+    private func orderList(_ accessibilityName: String, order: Binding<[ProviderKind]>,
+                           tag: @escaping (ProviderKind) -> String?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // The container already announces "Menu bar order" / "Popover order".
+            Text("Order").accessibilityHidden(true)
+            ForEach(Array(order.wrappedValue.enumerated()), id: \.element) { index, kind in
+                let name = store.name(for: kind)
+                let status = tag(kind)
+                HStack(spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(name)
+                        if let status {
+                            Text(status).font(.caption)
+                        }
+                    }
+                    .foregroundStyle(status == nil ? .primary : .secondary)
+                    .lineLimit(1)
+                    .accessibilityElement(children: .combine)
+                    Spacer(minLength: 8)
+                    Button {
+                        order.wrappedValue = ProviderOrder.move(kind, by: -1, in: order.wrappedValue)
+                    } label: {
+                        Image(systemName: "chevron.up")
+                            .frame(minWidth: 22, minHeight: 22)
+                            .contentShape(Rectangle())
+                    }
+                    .disabled(index == 0)
+                    .help("Move up")
+                    .accessibilityLabel("Move \(name) up")
+                    Button {
+                        order.wrappedValue = ProviderOrder.move(kind, by: 1, in: order.wrappedValue)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .frame(minWidth: 22, minHeight: 22)
+                            .contentShape(Rectangle())
+                    }
+                    .disabled(index == order.wrappedValue.count - 1)
+                    .help("Move down")
+                    .accessibilityLabel("Move \(name) down")
+                }
+                .buttonStyle(.borderless)
+                .padding(.leading, 12)
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(accessibilityName)
+    }
+
     // MARK: - Provider sections
 
     private func providerSection(kind: ProviderKind, isEnabled: Binding<Bool>,
-                                 showInMenuBar: Binding<Bool>, label: Binding<String>) -> some View {
+                                 showInMenuBar: Binding<Bool>, showInPopover: Binding<Bool>,
+                                 label: Binding<String>) -> some View {
         Section("Provider") {
             Toggle(isOn: isEnabled) {
                 Text("Enabled")
@@ -206,6 +276,9 @@ struct SettingsView: View {
             }
             .toggleStyle(.switch)
             Toggle("Show in Menu Bar", isOn: showInMenuBar)
+                .toggleStyle(.switch)
+                .disabled(!isEnabled.wrappedValue)
+            Toggle("Show in Popover", isOn: showInPopover)
                 .toggleStyle(.switch)
                 .disabled(!isEnabled.wrappedValue)
             LabeledContent("Menu bar label") {

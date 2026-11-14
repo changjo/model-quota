@@ -8,6 +8,8 @@ struct ClaudeQuotaView: View {
     let lastUpdated: Date?
     let isRefreshing: Bool
     var weeklyCycle: WeeklyUsageCycle? = nil
+    var showsResetTime: Bool = true
+    var showsLastUpdated: Bool = true
 
     var body: some View {
         VStack(spacing: 12) {
@@ -26,7 +28,8 @@ struct ClaudeQuotaView: View {
                                 remainingPercent: fiveHour.remainingPercent,
                                 remainingFraction: fiveHour.remainingFraction,
                                 resetDate: fiveHour.resetsAt,
-                                isStale: error != nil
+                                isStale: error != nil,
+                                showsResetTime: showsResetTime
                             )
                         }
 
@@ -41,7 +44,8 @@ struct ClaudeQuotaView: View {
                                 remainingFraction: sevenDay.remainingFraction,
                                 resetDate: sevenDay.resetsAt,
                                 weeklyCycle: weeklyCycle,
-                                isStale: error != nil
+                                isStale: error != nil,
+                                showsResetTime: showsResetTime
                             )
                         }
                     }
@@ -93,7 +97,7 @@ struct ClaudeQuotaView: View {
                 )
             }
 
-            if let lastUpdated {
+            if showsLastUpdated, let lastUpdated {
                 UpdatedFooter(date: lastUpdated, hasError: error != nil)
             }
         }
