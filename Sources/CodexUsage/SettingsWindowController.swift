@@ -20,7 +20,7 @@ final class SettingsWindowController: NSWindowController {
             settingsWindow.title = "Model Quota Settings"
             settingsWindow.styleMask = [.titled, .closable]
             settingsWindow.isReleasedWhenClosed = false
-            settingsWindow.setContentSize(NSSize(width: 520, height: 600))
+            settingsWindow.setContentSize(SettingsView.contentSize)
             settingsWindow.center()
             window = settingsWindow
         }

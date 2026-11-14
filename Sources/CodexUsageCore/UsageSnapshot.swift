@@ -91,7 +91,7 @@ public struct Quota: Identifiable, Equatable, Sendable {
     }
     public var usedPercent: Double { min(100, max(0, window.usedPercent)) }
     public var remainingFraction: Double { (100 - usedPercent) / 100 }
-    public var remainingPercent: Int { Int((100 - usedPercent).rounded(.down)) }
+    public var remainingPercent: Int { QuotaMath.remainingPercent(remaining: 100 - usedPercent) }
     public var resetDate: Date? { window.resetsAt.map { Date(timeIntervalSince1970: TimeInterval($0)) } }
     public var title: String {
         switch durationMinutes {

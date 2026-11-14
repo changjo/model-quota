@@ -28,8 +28,9 @@ struct UsagePopover: View {
                 }
                 Spacer()
                 if store.isRefreshing || store.isGeminiRefreshing || store.isClaudeRefreshing {
+                    // Each section announces its own refresh; this one is visual only.
                     ProgressView().controlSize(.small)
-                        .accessibilityLabel("Refreshing usage")
+                        .accessibilityHidden(true)
                 }
             }
             .padding(16)
@@ -42,7 +43,8 @@ struct UsagePopover: View {
             Divider()
             HStack(spacing: 12) {
                 Button { store.refresh() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
-                    .disabled(store.isRefreshing || store.isGeminiRefreshing || store.isClaudeRefreshing || store.isReconfiguring)
+                    .disabled(store.isRefreshing || store.isGeminiRefreshing || store.isClaudeRefreshing
+                              || store.isReconfiguring || !anyProviderEnabled)
                     .keyboardShortcut("r", modifiers: .command)
                     .help("Refresh usage (⌘R)")
                 Spacer()
@@ -62,31 +64,53 @@ struct UsagePopover: View {
         .background(.regularMaterial)
     }
 
+    private var anyProviderEnabled: Bool {
+        store.isCodexEnabled || store.isGeminiEnabled || store.isClaudeEnabled
+    }
+
     private var details: some View {
         VStack(spacing: 16) {
-            codexSection
+            if store.isCodexEnabled {
+                codexSection
+            }
 
-            Divider().padding(.horizontal, 4)
+            if store.isGeminiEnabled {
+                if store.isCodexEnabled {
+                    Divider().padding(.horizontal, 4)
+                }
+                GeminiQuotaView(
+                    snapshot: store.geminiSnapshot,
+                    error: store.geminiError,
+                    name: store.geminiName,
+                    lastUpdated: store.geminiLastUpdated,
+                    isRefreshing: store.isGeminiRefreshing,
+                    weeklyCycle: store.geminiWeeklyTracker.currentCycle
+                )
+            }
 
-            GeminiQuotaView(
-                snapshot: store.geminiSnapshot,
-                error: store.geminiError,
-                label: store.geminiLabel,
-                lastUpdated: store.geminiLastUpdated,
-                isRefreshing: store.isGeminiRefreshing,
-                weeklyCycle: store.geminiWeeklyTracker.currentCycle
-            )
+            if store.isClaudeEnabled {
+                if store.isCodexEnabled || store.isGeminiEnabled {
+                    Divider().padding(.horizontal, 4)
+                }
+                ClaudeQuotaView(
+                    snapshot: store.claudeSnapshot,
+                    error: store.claudeError,
+                    name: store.claudeName,
+                    lastUpdated: store.claudeLastUpdated,
+                    isRefreshing: store.isClaudeRefreshing,
+                    weeklyCycle: store.claudeWeeklyTracker.currentCycle
+                )
+            }
 
-            Divider().padding(.horizontal, 4)
-
-            ClaudeQuotaView(
-                snapshot: store.claudeSnapshot,
-                error: store.claudeError,
-                label: store.claudeLabel,
-                lastUpdated: store.claudeLastUpdated,
-                isRefreshing: store.isClaudeRefreshing,
-                weeklyCycle: store.claudeWeeklyTracker.currentCycle
-            )
+            if !anyProviderEnabled {
+                StatusCard(
+                    title: "No providers enabled",
+                    detail: "Turn on a provider in Settings.",
+                    symbol: "gauge.with.dots.needle.33percent",
+                    actionTitle: "Open Settings…",
+                    action: openSettings
+                )
+            }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 16)
@@ -94,23 +118,11 @@ struct UsagePopover: View {
 
     private var codexSection: some View {
         VStack(spacing: 12) {
-            HStack {
-                Label(store.codexLabel, systemImage: "chevron.left.forwardslash.chevron.right")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Spacer()
-                if store.isRefreshing {
-                    ProgressView().controlSize(.small)
-                        .accessibilityLabel("Refreshing \(store.codexLabel) usage")
-                }
-            }
-            .padding(.horizontal, 2)
+            ProviderSectionHeader(name: store.codexName, systemImage: "chevron.left.forwardslash.chevron.right",
+                                  isRefreshing: store.isRefreshing)
 
             if let error = store.error {
-                statusMessage(error.errorDescription(for: store.codexLabel),
-                              detail: error.recoverySuggestion(for: store.codexLabel) +
-                                (store.snapshot == nil ? "" : " Showing the last known usage."),
-                              symbol: "exclamationmark.triangle", warning: true)
+                ProviderErrorCard(error: error, kind: .codex, name: store.codexName, showsLastKnownUsage: store.snapshot != nil)
             }
 
             if let snapshot = store.snapshot {
@@ -120,13 +132,14 @@ struct UsagePopover: View {
                             if index > 0 { Divider().padding(.horizontal, 14) }
                             QuotaView(
                                 quota: quota,
-                                weeklyCycle: quota.durationMinutes == 10080 ? store.weeklyTracker.currentCycle : nil
+                                weeklyCycle: quota.durationMinutes == 10080 ? store.weeklyTracker.currentCycle : nil,
+                                isStale: store.error != nil
                             )
                         }
                     }
                     .background(.background, in: RoundedRectangle(cornerRadius: 10))
                 } else {
-                    statusMessage("No usage limits available", detail: "\(store.codexLabel) hasn't reported a usage window for this account.", symbol: "chart.bar")
+                    statusMessage("No usage limits available", detail: "\(store.codexName) hasn't reported a usage window for this account.", symbol: "chart.bar")
                 }
                 if snapshot.ordinaryUsageAllowed == false || snapshot.bucket?.spendControlReached == true {
                     statusMessage("Usage is restricted", detail: "Your account currently has a usage restriction.", symbol: "pause.circle", warning: true)
@@ -145,7 +158,7 @@ struct UsagePopover: View {
                     .background(.background, in: RoundedRectangle(cornerRadius: 10))
                 }
             } else if store.error == nil {
-                statusMessage("Checking \(store.codexLabel) usage…", detail: "Connecting to your Codex CLI account.", symbol: "chart.bar")
+                statusMessage("Checking \(store.codexName) usage…", detail: "Reading usage from the codex CLI.", symbol: "hourglass")
             }
 
             if let updated = store.lastUpdated {
@@ -171,15 +184,16 @@ struct UsagePopover: View {
 private struct QuotaView: View {
     let quota: Quota
     var weeklyCycle: WeeklyUsageCycle? = nil
+    var isStale: Bool = false
 
     var body: some View {
         UsageMeterRow(
             title: quota.title,
-            usedPercent: quota.usedPercent,
             remainingPercent: quota.remainingPercent,
             remainingFraction: quota.remainingFraction,
             resetDate: quota.resetDate,
-            weeklyCycle: quota.durationMinutes == 10080 ? weeklyCycle : nil
+            weeklyCycle: quota.durationMinutes == 10080 ? weeklyCycle : nil,
+            isStale: isStale
         )
     }
 }

@@ -3,51 +3,30 @@ import CodexUsageCore
 
 struct ClaudeQuotaView: View {
     let snapshot: ClaudeUsageSnapshot?
-    let error: Error?
-    let label: String
+    let error: UsageError?
+    let name: String
     let lastUpdated: Date?
     let isRefreshing: Bool
     var weeklyCycle: WeeklyUsageCycle? = nil
 
     var body: some View {
         VStack(spacing: 12) {
-            HStack {
-                Label(label, systemImage: "bubble.left.and.text.bubble.right")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Spacer()
-                if isRefreshing {
-                    ProgressView().controlSize(.small)
-                        .accessibilityLabel("Refreshing \(label) usage")
-                }
-            }
-            .padding(.horizontal, 2)
+            ProviderSectionHeader(name: name, systemImage: "bubble.left.and.text.bubble.right", isRefreshing: isRefreshing)
 
-            if let error = error {
-                let errDesc = (error as? UsageError)?.errorDescription(for: label) ?? error.localizedDescription
-                let suggestion = (error as? UsageError)?.recoverySuggestion(for: label) ?? (error as? LocalizedError)?.recoverySuggestion ?? ""
-                let detail = suggestion.isEmpty
-                    ? (snapshot == nil ? "" : "Showing the last known usage.")
-                    : suggestion + (snapshot == nil ? "" : " Showing the last known usage.")
-                StatusCard(
-                    title: errDesc,
-                    detail: detail,
-                    symbol: "exclamationmark.triangle",
-                    warning: true
-                )
+            if let error {
+                ProviderErrorCard(error: error, kind: .claude, name: name, showsLastKnownUsage: snapshot != nil)
             }
 
-            if let snapshot = snapshot {
+            if let snapshot {
                 if snapshot.fiveHour != nil || snapshot.sevenDay != nil {
                     VStack(spacing: 0) {
                         if let fiveHour = snapshot.fiveHour {
                             UsageMeterRow(
-                                title: "Current Session (5h)",
-                                usedPercent: fiveHour.usedPercent,
+                                title: "5-Hour Limit",
                                 remainingPercent: fiveHour.remainingPercent,
                                 remainingFraction: fiveHour.remainingFraction,
                                 resetDate: fiveHour.resetsAt,
-                                weeklyCycle: nil
+                                isStale: error != nil
                             )
                         }
 
@@ -57,12 +36,12 @@ struct ClaudeQuotaView: View {
 
                         if let sevenDay = snapshot.sevenDay {
                             UsageMeterRow(
-                                title: "Weekly Limit (7d)",
-                                usedPercent: sevenDay.usedPercent,
+                                title: "Weekly Limit",
                                 remainingPercent: sevenDay.remainingPercent,
                                 remainingFraction: sevenDay.remainingFraction,
                                 resetDate: sevenDay.resetsAt,
-                                weeklyCycle: weeklyCycle
+                                weeklyCycle: weeklyCycle,
+                                isStale: error != nil
                             )
                         }
                     }
@@ -90,35 +69,32 @@ struct ClaudeQuotaView: View {
                             }
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
-                            .background(.background, in: RoundedRectangle(cornerRadius: 8))
+                            .background(.background, in: RoundedRectangle(cornerRadius: 10))
                         }
                     }
                 } else if !snapshot.rateLimitsAvailable {
                     StatusCard(
                         title: "Rate limits not available",
                         detail: "Claude Code CLI reports that rate limit tracking is unavailable for this account.",
-                        symbol: "chart.bar",
-                        warning: false
+                        symbol: "chart.bar"
                     )
                 } else {
                     StatusCard(
                         title: "No usage limits available",
-                        detail: "\(label) hasn't reported active usage limits.",
-                        symbol: "chart.bar",
-                        warning: false
+                        detail: "\(name) hasn't reported a usage window for this account.",
+                        symbol: "chart.bar"
                     )
                 }
             } else if error == nil {
                 StatusCard(
-                    title: "Checking \(label) usage…",
-                    detail: "Querying Claude CLI for quota limits.",
-                    symbol: "bubble.left.and.text.bubble.right",
-                    warning: false
+                    title: "Checking \(name) usage…",
+                    detail: "Reading usage from the claude CLI.",
+                    symbol: "hourglass"
                 )
             }
 
-            if let updated = lastUpdated {
-                UpdatedFooter(date: updated, hasError: error != nil)
+            if let lastUpdated {
+                UpdatedFooter(date: lastUpdated, hasError: error != nil)
             }
         }
     }

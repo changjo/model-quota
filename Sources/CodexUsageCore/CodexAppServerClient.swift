@@ -62,6 +62,11 @@ public final class CodexAppServerClient: AppServerConnection {
         child.standardInput = stdin
         child.standardOutput = stdout
         child.standardError = FileHandle.nullDevice
+        // Apps launched from Finder get a minimal PATH; npm-installed codex needs `env node`.
+        child.environment = CLIProcess.environment(base: ProcessInfo.processInfo.environment,
+                                                   home: NSHomeDirectory(),
+                                                   executableDirectory: executable.deletingLastPathComponent().path)
+        child.currentDirectoryURL = CLIProcess.workingDirectory
         stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             if data.isEmpty { handle.readabilityHandler = nil }
@@ -131,11 +136,17 @@ public final class CodexAppServerClient: AppServerConnection {
                     child.terminate()
                     await waitForExit(child, seconds: 0.6)
                 }
-                if child.isRunning { kill(child.processIdentifier, SIGKILL) }
-                // After SIGKILL or observed exit this is a short reap.
-                child.waitUntilExit()
+                if child.isRunning {
+                    // The child leads its own process group; -pid also reaches stuck helpers.
+                    kill(-child.processIdentifier, SIGKILL)
+                    kill(child.processIdentifier, SIGKILL)
+                    // Poll instead of waitUntilExit(), which would spin the main run loop.
+                    await waitForExit(child, seconds: 1)
+                }
             }
-            try? stdout?.fileHandleForReading.close()
+            // The read handler is already detached; let the pipe close on deallocation rather
+            // than racing a handler that may still be inside `availableData`.
+            _ = stdout
         }
         cleanup = operation
         await operation.value

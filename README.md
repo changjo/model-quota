@@ -6,8 +6,9 @@ This is an independent project, not an official OpenAI or Google product.
 
 The menu bar shows remaining percentages in a clean 2-row grid. Click it for quota details. The interface uses native macOS controls, system fonts, and light and dark appearances.
 
-- Menu bar: left-aligned labels (`Codex`, `Gemini`) with right-aligned percentages (`74%`, `81%`).
-- Popover: dual provider details, remaining and used percentages, reset times and countdowns, weekly mini-histogram.
+- Menu bar: left-aligned labels (`Codex`, `Gemini`, `Claude`) with right-aligned percentages (`74%`, `81%`), up to two rows per column. A provider whose last read failed shows `?`.
+- Popover: details for Codex, Gemini (Antigravity `agy`), and Claude Code. It shows the remaining percentage, colored orange at 25% or less and red at 10% or less with a warning symbol. It also shows reset countdowns and a daily usage histogram labeled by weekday. Last known values are dimmed while a provider is failing.
+- Turn each provider on or off. A disabled provider is hidden and never run.
 - Manual refresh, launch at login, configurable executable paths, and quit controls.
 - Refreshes at startup and in background with zero credentials leaked.
 
@@ -53,23 +54,32 @@ The current binary has been tested on Apple Silicon with macOS 27, native Codex 
 
 ## Settings
 
-Open **Settings…** from the popover or press **⌘,** while the app is active. Opening an already-running app from Finder also shows Settings. The app version appears below the Model Quota name and is read from the installed bundle.
+Open **Settings…** from the popover or press **⌘,** while the app is active. Opening an already-running app from Finder also shows Settings. Settings has four tabs:
 
-Leave the executable path empty to search absolute directories in `PATH` and known installation locations. If detection fails, select the `codex` executable and click **Apply**. Invalid paths are rejected without saving them or interrupting the existing connection. **Use Automatic Detection** restores the default search.
+- **General**: Launch at Login, the menu bar Limit Format, and the app version, which is read from the installed bundle.
+- **Codex**, **Gemini**, and **Claude**: each tab has these controls.
+  - **Enabled**: when off, the provider is hidden from the popover and menu bar, and its CLI is never run.
+  - **Show in Menu Bar** and the menu bar label. An empty label uses the provider name.
+  - Connection status with **Refresh Now**.
+  - The executable path.
+
+Leave the executable path empty to search absolute directories in `PATH` and known installation locations (`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`). If detection fails, choose the executable (`codex`, `agy`, or `claude`) and click **Apply**. Invalid paths are rejected without saving them or interrupting the existing connection. **Use Automatic Detection** restores the default search.
 
 Authentication is handled by the CLI. If the app reports a sign-in problem, check the CLI login in Terminal.
 
-Enable **General → Launch at Login** to start the app when you sign in to your Mac. The app does not register automatically on first launch; the switch reflects the actual macOS registration status. If approval is required, use **Open System Settings…** or **Cancel Request**. Changes take effect immediately without clicking Apply. Move the app to its final location before enabling this option.
+Enable **General → Launch at Login** to start the app when you sign in to your Mac. The app does not register automatically on first launch; the switch reflects the actual macOS registration status. If approval is required, use **Open System Settings…** or **Turn Off**. Changes take effect immediately without clicking Apply. Move the app to its final location before enabling this option.
 
 ## How it works and privacy
 
 The app maintains one `codex app-server` child process and communicates over local stdio JSONL. The official CLI handles existing authentication and network requests. The app does not directly access cookies, authentication files, the browser Keychain, or private HTTP endpoints.
 
-Usage and account responses are kept in memory. Only the custom CLI path is saved in UserDefaults. Launch at login uses Apple’s `SMAppService.mainApp`, with registration state managed by macOS.
+Usage and account responses are kept in memory. Settings (CLI paths, labels, provider and menu bar preferences) are saved in UserDefaults. To draw the daily usage histogram, the app also stores each provider's weekly usage history: daily percentages, reset times, and the Codex account identifier. It never stores credentials or tokens. This history lives in UserDefaults and `~/Library/Application Support/Model Quota/`, limited to the 12 most recent cycles. Launch at login uses Apple’s `SMAppService.mainApp`, with registration state managed by macOS.
+
+Claude and Gemini usage is read by briefly running the official CLIs: `claude --print` with a `get_usage` control request, which never starts a model turn, and `agy --print /usage`. Each provider is checked once a minute. After a failure, the interval doubles up to 5 minutes. A provider you turn off in Settings is never run.
 
 The app does not request Full Disk Access, Accessibility, or Screen Recording permissions. Mac App Sandbox is not enabled. The CLI may write its own state under `~/.codex`.
 
-Usage notifications may contain partial responses, so the app requests a fresh snapshot. Notifications for unrelated usage buckets are ignored. If a request fails, the menu bar shows `Codex ?` and any retained popover values are labeled as the last known usage. Account changes clear previous values. The app cleans up its child process on quit, sleep, and executable path changes.
+Usage notifications may contain partial responses, so the app requests a fresh snapshot. Notifications for unrelated usage buckets are ignored. If a request fails, the menu bar shows `?` for that provider. Any retained popover values are dimmed and labeled as the last known usage. Account changes clear previous values. The app cleans up its child process on quit, sleep, and executable path changes.
 
 General ChatGPT per-model message quotas and low-usage alerts are not included.
 
@@ -96,12 +106,12 @@ App views and lifecycle code are in `Sources/CodexUsage`. Models, connection han
 To check application termination signals, quit any running instance first, then run:
 
 ```sh
-python3 scripts/test-app-lifecycle.py "dist/Codex Usage.app/Contents/MacOS/CodexUsage"
+python3 scripts/test-app-lifecycle.py "dist/Model Quota.app/Contents/MacOS/ModelQuota"
 ```
 
 This check briefly launches the app with its normal CLI configuration and may read usage from your account.
 
-Render 16 production SwiftUI view states with sample data in light and dark appearances:
+Render the production SwiftUI views with sample data in light and dark appearances. The renders cover popover states, every Settings tab, and the menu bar image:
 
 ```sh
 ./scripts/render-ui.sh

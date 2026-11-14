@@ -59,4 +59,50 @@ final class ClaudeUsageSnapshotTests: XCTestCase {
         XCTAssertEqual(windowOver.usedPercent, 100)
         XCTAssertEqual(windowOver.remainingFraction, 0.0)
     }
+
+    func testRemainingPercentIsConservativeLikeCodex() {
+        // Any recorded usage must not display as a full 100% remaining.
+        XCTAssertEqual(ClaudeUsageSnapshot.Window(utilization: 0.4, resetsAt: nil).remainingPercent, 99)
+        XCTAssertEqual(ClaudeUsageSnapshot.Window(utilization: 99.6, resetsAt: nil).remainingPercent, 0)
+        XCTAssertEqual(ClaudeUsageSnapshot.Window(utilization: 60, resetsAt: nil).remainingPercent, 40)
+        XCTAssertEqual(ClaudeUsageSnapshot.Window(utilization: -3, resetsAt: nil).remainingPercent, 100)
+    }
+
+    func testUnparseableResetTimeIsNilNotNow() throws {
+        let json = #"{"type":"control_response","response":{"subtype":"success","response":{"rate_limits":{"seven_day":{"utilization":10,"resets_at":"garbage"}}}}}"#
+        let snapshot = try ClaudeUsageSnapshot.decode(from: Data(json.utf8))
+        XCTAssertNotNil(snapshot.sevenDay)
+        XCTAssertNil(snapshot.sevenDay?.resetsAt)
+    }
+
+    func testMicrosecondOffsetTimestampFromClaudeCodeParses() throws {
+        // Shape observed from Claude Code 2.1.323: six fractional digits and a +00:00 offset.
+        let json = #"{"type":"control_response","response":{"subtype":"success","response":{"rate_limits":{"seven_day":{"utilization":3,"resets_at":"2026-11-20T09:00:00.114255+00:00"},"five_hour":{"utilization":8,"resets_at":"2026-11-20T09:00:00+00:00"}}}}}"#
+        let snapshot = try ClaudeUsageSnapshot.decode(from: Data(json.utf8))
+        XCTAssertEqual(snapshot.sevenDay?.resetsAt?.timeIntervalSince1970 ?? 0, 1_795_165_200, accuracy: 1)
+        XCTAssertEqual(snapshot.fiveHour?.resetsAt?.timeIntervalSince1970 ?? 0, 1_795_165_200, accuracy: 1)
+    }
+
+    func testNoReportedWindowsIsUnknownNotFull() throws {
+        let json = #"{"type":"control_response","response":{"subtype":"success","response":{"rate_limits_available":false,"rate_limits":null}}}"#
+        let snapshot = try ClaudeUsageSnapshot.decode(from: Data(json.utf8))
+        XCTAssertNil(snapshot.primaryRemainingPercent)
+        for mode in MenuBarDisplayMode.allCases {
+            XCTAssertEqual(snapshot.formattedValue(for: mode), "?", "\(mode)")
+        }
+    }
+
+    func testMalformedBreakdownRowDoesNotHideUsage() throws {
+        let json = #"{"type":"control_response","response":{"subtype":"success","response":{"rate_limits":{"seven_day":{"utilization":20,"resets_at":"2026-11-20T09:00:00+00:00"},"seven_day_breakdown":{"rows":[{"key":"a","display_name":"A","percent":null},{"key":"b","display_name":"B","percent":12.5}]}}}}}"#
+        let snapshot = try ClaudeUsageSnapshot.decode(from: Data(json.utf8))
+        XCTAssertEqual(snapshot.sevenDay?.remainingPercent, 80)
+        XCTAssertEqual(snapshot.breakdownRows.map(\.key), ["b"])
+    }
+
+    func testNumericResetTimeDoesNotFailTheWholeRead() throws {
+        let json = #"{"type":"control_response","response":{"subtype":"success","response":{"rate_limits":{"seven_day":{"utilization":25,"resets_at":1795165200}}}}}"#
+        let snapshot = try ClaudeUsageSnapshot.decode(from: Data(json.utf8))
+        XCTAssertEqual(snapshot.sevenDay?.remainingPercent, 75)
+        XCTAssertNil(snapshot.sevenDay?.resetsAt)
+    }
 }

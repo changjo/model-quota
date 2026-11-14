@@ -22,7 +22,7 @@ struct CodexUsageApp: App {
                 .accessibilityLabel(
                     store.menuBarItems.isEmpty
                         ? "Model Quota"
-                        : "Usage: \(store.menuBarItems.map(\.displayText).joined(separator: ", "))"
+                        : "Model Quota. \(store.menuBarItems.map(\.accessibilityText).joined(separator: ", "))"
                 )
         }
         .menuBarExtraStyle(.window)

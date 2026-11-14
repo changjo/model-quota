@@ -9,6 +9,8 @@ directory = os.path.dirname(os.path.realpath(__file__))
 mode = open(os.path.join(directory, 'mode')).read().strip()
 with open(os.path.join(directory, 'pid'), 'w') as f:
     f.write(str(os.getpid()))
+with open(os.path.join(directory, 'path'), 'w') as f:
+    f.write(os.environ.get('PATH', ''))
 with open(os.path.join(directory, 'response-redacted.json')) as f:
     snapshot = json.load(f)['result']
 initialized = False

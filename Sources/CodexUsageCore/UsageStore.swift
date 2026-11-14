@@ -19,6 +19,8 @@ public final class UsageStore: ObservableObject {
     @Published public private(set) var geminiError: UsageError?
     @Published public private(set) var isGeminiRefreshing = false
     @Published public private(set) var agyCustomPath: String
+    @Published public private(set) var geminiConfigurationError: UsageError?
+    @Published public private(set) var geminiResolvedPath: String?
 
     // Claude state
     @Published public private(set) var claudeSnapshot: ClaudeUsageSnapshot?
@@ -26,6 +28,19 @@ public final class UsageStore: ObservableObject {
     @Published public private(set) var claudeError: UsageError?
     @Published public private(set) var isClaudeRefreshing = false
     @Published public private(set) var claudeCustomPath: String
+    @Published public private(set) var claudeConfigurationError: UsageError?
+    @Published public private(set) var claudeResolvedPath: String?
+
+    // Provider enablement: a disabled provider is hidden everywhere and never polled.
+    @Published public var isCodexEnabled: Bool {
+        didSet { providerEnablementChanged(.codex, from: oldValue, to: isCodexEnabled) }
+    }
+    @Published public var isGeminiEnabled: Bool {
+        didSet { providerEnablementChanged(.gemini, from: oldValue, to: isGeminiEnabled) }
+    }
+    @Published public var isClaudeEnabled: Bool {
+        didSet { providerEnablementChanged(.claude, from: oldValue, to: isClaudeEnabled) }
+    }
 
     // Customization & visibility preferences
     @Published public var showCodexInMenuBar: Bool {
@@ -72,6 +87,14 @@ public final class UsageStore: ObservableObject {
     private var accountRevision = 0
     private var needsRefresh = false
     private var failures = 0
+    private var geminiFailures = 0
+    /// Most recently scheduled poll intervals (observable by tests).
+    private(set) var geminiRetryDelay: TimeInterval?
+    private(set) var claudeRetryDelay: TimeInterval?
+    private var trackerSubscriptions = Set<AnyCancellable>()
+    /// App-server shutdown started by disabling Codex; a later read must wait for it.
+    private var codexShutdown: Task<Void, Never>?
+    private var claudeFailures = 0
 
     public init(client: AppServerConnection? = nil,
                 geminiClient: GeminiUsageService? = nil,
@@ -80,8 +103,11 @@ public final class UsageStore: ObservableObject {
                 weeklyTracker: WeeklyUsageTracker? = nil,
                 geminiWeeklyTracker: WeeklyUsageTracker? = nil,
                 claudeWeeklyTracker: WeeklyUsageTracker? = nil,
+                legacySuiteName: String? = "dev.changjo.CodexUsage",
                 locate: @escaping (String) throws -> URL = { try ExecutableLocator.resolve(customPath: $0) }) {
-        let legacy = UserDefaults(suiteName: "dev.changjo.CodexUsage")
+        // Settings from the pre-rename bundle are migrated once; tests pass nil to stay hermetic.
+        let legacy = legacySuiteName.flatMap { UserDefaults(suiteName: $0) }
+        let legacySuites = legacySuiteName.map { [$0] } ?? []
         let codexPath = defaults.string(forKey: "codexExecutablePath") ?? legacy?.string(forKey: "codexExecutablePath") ?? ""
         let agyPath = defaults.string(forKey: "agyExecutablePath") ?? legacy?.string(forKey: "agyExecutablePath") ?? ""
         let claudePath = defaults.string(forKey: "claudeExecutablePath") ?? legacy?.string(forKey: "claudeExecutablePath") ?? ""
@@ -89,9 +115,9 @@ public final class UsageStore: ObservableObject {
         self.geminiClient = geminiClient ?? GeminiAgyClient(customPath: agyPath)
         self.claudeClient = claudeClient ?? ClaudeClient(customPath: claudePath)
         self.defaults = defaults
-        self.weeklyTracker = weeklyTracker ?? WeeklyUsageTracker(userDefaults: defaults)
-        self.geminiWeeklyTracker = geminiWeeklyTracker ?? WeeklyUsageTracker(userDefaults: defaults, storageKey: "gemini_usage_weekly_tracker")
-        self.claudeWeeklyTracker = claudeWeeklyTracker ?? WeeklyUsageTracker(userDefaults: defaults, storageKey: "claude_usage_weekly_tracker")
+        self.weeklyTracker = weeklyTracker ?? WeeklyUsageTracker(userDefaults: defaults, legacySuiteNames: legacySuites)
+        self.geminiWeeklyTracker = geminiWeeklyTracker ?? WeeklyUsageTracker(userDefaults: defaults, storageKey: "gemini_usage_weekly_tracker", legacySuiteNames: legacySuites)
+        self.claudeWeeklyTracker = claudeWeeklyTracker ?? WeeklyUsageTracker(userDefaults: defaults, storageKey: "claude_usage_weekly_tracker", legacySuiteNames: legacySuites)
         self.locate = locate
         self.customPath = codexPath
         self.agyCustomPath = agyPath
@@ -105,6 +131,9 @@ public final class UsageStore: ObservableObject {
         self.claudeLabel = defaults.string(forKey: "serviceLabelClaude") ?? legacy?.string(forKey: "serviceLabelClaude") ?? "Claude"
         let modeRaw = defaults.string(forKey: "menuBarDisplayMode") ?? legacy?.string(forKey: "menuBarDisplayMode") ?? MenuBarDisplayMode.both.rawValue
         self.menuBarDisplayMode = MenuBarDisplayMode(rawValue: modeRaw) ?? .both
+        self.isCodexEnabled = defaults.object(forKey: "providerEnabledCodex") as? Bool ?? true
+        self.isGeminiEnabled = defaults.object(forKey: "providerEnabledGemini") as? Bool ?? true
+        self.isClaudeEnabled = defaults.object(forKey: "providerEnabledClaude") as? Bool ?? true
 
         if defaults.object(forKey: "menuBarShowCodex") == nil, let val = legacy?.object(forKey: "menuBarShowCodex") as? Bool {
             defaults.set(val, forKey: "menuBarShowCodex")
@@ -137,102 +166,67 @@ public final class UsageStore: ObservableObject {
             defaults.set(val, forKey: "claudeExecutablePath")
         }
 
+        // Views read the trackers through the store, so their changes must republish the store.
+        for tracker in [self.weeklyTracker, self.geminiWeeklyTracker, self.claudeWeeklyTracker] {
+            tracker.objectWillChange
+                .sink { [weak self] _ in self?.objectWillChange.send() }
+                .store(in: &trackerSubscriptions)
+        }
+
         self.client.onNotification = { [weak self] event in self?.notified(event) }
         self.client.onDisconnect = { [weak self] error in
-            guard let self, self.running else { return }
+            guard let self, self.running, self.isCodexEnabled else { return }
             self.disconnectRevision += 1
             self.error = error
             if !self.isRefreshing { self.schedule(after: 60) }
         }
     }
 
-    public var menuBarTitle: String {
-        guard running, error == nil else { return "Codex ?" }
-        return snapshot?.menuBarTitle ?? (isRefreshing ? "Codex …" : "Codex ?")
+    /// Labels shown in the UI; an empty custom label falls back to the provider name.
+    public var codexName: String { Self.displayName(codexLabel, default: "Codex") }
+    public var geminiName: String { Self.displayName(geminiLabel, default: "Gemini") }
+    public var claudeName: String { Self.displayName(claudeLabel, default: "Claude") }
+
+    private static func displayName(_ label: String, default name: String) -> String {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? name : trimmed
+    }
+
+    /// Menu bar text for one provider. A failed read shows "?" even when an older value exists:
+    /// the menu bar cannot mark a value as stale, so it must not present it as current.
+    private static func summary(_ value: String?, refreshing: Bool, failed: Bool) -> String {
+        if failed { return "?" }
+        return value ?? (refreshing ? "…" : "?")
     }
 
     public var menuBarItems: [ProviderUsageItem] {
-        var items: [ProviderUsageItem] = []
+        let mode = menuBarDisplayMode
+        let codex = isCodexEnabled ? ProviderUsageItem(
+            id: "codex", label: codexName,
+            summaryValue: Self.summary(snapshot?.formattedValue(for: mode), refreshing: isRefreshing, failed: error != nil),
+            isRefreshing: isRefreshing, hasError: error != nil) : nil
+        let gemini = isGeminiEnabled ? ProviderUsageItem(
+            id: "gemini", label: geminiName,
+            summaryValue: Self.summary(geminiSnapshot?.formattedValue(for: mode), refreshing: isGeminiRefreshing, failed: geminiError != nil),
+            isRefreshing: isGeminiRefreshing, hasError: geminiError != nil) : nil
+        let claude = isClaudeEnabled ? ProviderUsageItem(
+            id: "claude", label: claudeName,
+            summaryValue: Self.summary(claudeSnapshot?.formattedValue(for: mode), refreshing: isClaudeRefreshing, failed: claudeError != nil),
+            isRefreshing: isClaudeRefreshing, hasError: claudeError != nil) : nil
 
-        if showCodexInMenuBar {
-            let val: String
-            if let snapshot {
-                val = snapshot.formattedValue(for: menuBarDisplayMode)
-            } else if isRefreshing {
-                val = "…"
-            } else if error != nil {
-                val = "?"
-            } else {
-                val = "?"
-            }
-            items.append(ProviderUsageItem(
-                id: "codex",
-                label: codexLabel,
-                summaryValue: val,
-                isRefreshing: isRefreshing,
-                hasError: error != nil
-            ))
-        }
+        let shown = [
+            showCodexInMenuBar ? codex : nil,
+            showGeminiInMenuBar ? gemini : nil,
+            showClaudeInMenuBar ? claude : nil
+        ].compactMap { $0 }
+        if !shown.isEmpty { return shown }
+        // Never leave the menu bar empty while a provider is enabled: show the first one.
+        return [codex, gemini, claude].compactMap { $0 }.prefix(1).map { $0 }
+    }
 
-        if showGeminiInMenuBar {
-            let val: String
-            if let snap = geminiSnapshot {
-                val = snap.formattedValue(for: menuBarDisplayMode)
-            } else if isGeminiRefreshing {
-                val = "…"
-            } else if geminiError != nil {
-                val = "?"
-            } else {
-                val = "?"
-            }
-            items.append(ProviderUsageItem(
-                id: "gemini",
-                label: geminiLabel,
-                summaryValue: val,
-                isRefreshing: isGeminiRefreshing,
-                hasError: geminiError != nil
-            ))
-        }
-
-        if showClaudeInMenuBar {
-            let val: String
-            if let snap = claudeSnapshot {
-                val = snap.formattedValue(for: menuBarDisplayMode)
-            } else if isClaudeRefreshing {
-                val = "…"
-            } else if claudeError != nil {
-                val = "?"
-            } else {
-                val = "?"
-            }
-            items.append(ProviderUsageItem(
-                id: "claude",
-                label: claudeLabel,
-                summaryValue: val,
-                isRefreshing: isClaudeRefreshing,
-                hasError: claudeError != nil
-            ))
-        }
-
-        if items.isEmpty {
-            let val: String
-            if let snapshot {
-                val = snapshot.formattedValue(for: menuBarDisplayMode)
-            } else if isRefreshing {
-                val = "…"
-            } else {
-                val = "?"
-            }
-            items.append(ProviderUsageItem(
-                id: "codex",
-                label: codexLabel,
-                summaryValue: val,
-                isRefreshing: isRefreshing,
-                hasError: error != nil
-            ))
-        }
-
-        return items
+    /// Retry interval after `failures` consecutive failures: 60s doubling up to 5 minutes.
+    func retryDelay(failures: Int) -> TimeInterval {
+        min(300, 60 * pow(2, Double(max(0, failures - 1))))
     }
 
     public func start() {
@@ -249,7 +243,7 @@ public final class UsageStore: ObservableObject {
     }
 
     public func refreshCodex() {
-        guard running, refreshTask == nil else { return }
+        guard running, isCodexEnabled, refreshTask == nil else { return }
         scheduled?.cancel()
         scheduled = nil
         needsRefresh = false
@@ -260,6 +254,8 @@ public final class UsageStore: ObservableObject {
         refreshTask = Task { [weak self] in
             guard let self else { return }
             do {
+                await codexShutdown?.value
+                guard epoch == current, !Task.isCancelled else { return }
                 if !client.isConnected {
                     let executable = try locate(customPath)
                     resolvedPath = executable.path
@@ -293,7 +289,7 @@ public final class UsageStore: ObservableObject {
             refreshTask = nil
             isRefreshing = false
             // Notifications coalesce; failures always respect backoff even during event bursts.
-            let delay = error != nil ? min(300, 60 * pow(2, Double(max(0, failures - 1)))) : (needsRefresh ? 0.5 : 60)
+            let delay = error != nil ? retryDelay(failures: failures) : (needsRefresh ? 0.5 : 60)
             schedule(after: delay)
         }
     }
@@ -311,6 +307,7 @@ public final class UsageStore: ObservableObject {
         let previous = refreshTask
         refreshTask = nil
         previous?.cancel()
+        let providerReads = [geminiRefreshTask, claudeRefreshTask].compactMap { $0 }
         geminiRefreshTask?.cancel()
         geminiRefreshTask = nil
         claudeRefreshTask?.cancel()
@@ -320,21 +317,30 @@ public final class UsageStore: ObservableObject {
         isClaudeRefreshing = false
         snapshot = nil
         lastUpdated = nil
+        geminiSnapshot = nil
+        geminiLastUpdated = nil
         claudeSnapshot = nil
         claudeLastUpdated = nil
         needsRefresh = false
-        if let cleanup { await cleanup.value; return }
-        let operation = Task {
-            await client.stop()
-            await previous?.value
+        if let cleanup {
+            await cleanup.value
+        } else {
+            let operation = Task {
+                await client.stop()
+                await previous?.value
+            }
+            cleanup = operation
+            await operation.value
+            cleanup = nil
         }
-        cleanup = operation
-        await operation.value
-        cleanup = nil
+        // A cancelled CLI read returns once its child has exited (SIGKILL after a short grace), so
+        // waiting here guarantees no agy/claude process outlives quit or sleep.
+        for read in providerReads { await read.value }
     }
 
     public func refreshGemini() {
-        guard running, geminiRefreshTask == nil else { return }
+        guard running, isGeminiEnabled, geminiRefreshTask == nil else { return }
+        updateResolvedPath(.gemini)
         geminiScheduled?.cancel()
         geminiScheduled = nil
         isGeminiRefreshing = true
@@ -353,18 +359,21 @@ public final class UsageStore: ObservableObject {
                 }
                 self.geminiLastUpdated = Date()
                 self.geminiError = nil
+                self.geminiFailures = 0
             } catch {
                 guard !Task.isCancelled else { return }
                 self.geminiError = (error as? UsageError) ?? .requestFailed
+                self.geminiFailures = min(self.geminiFailures + 1, 4)
             }
             self.isGeminiRefreshing = false
             self.geminiRefreshTask = nil
-            self.scheduleGemini(after: 60)
+            self.scheduleGemini(after: self.geminiError == nil ? 60 : self.retryDelay(failures: self.geminiFailures))
         }
     }
 
     private func scheduleGemini(after seconds: TimeInterval) {
-        guard running else { return }
+        guard running, isGeminiEnabled else { return }
+        geminiRetryDelay = seconds
         geminiScheduled?.cancel()
         geminiScheduled = Task { [weak self] in
             do { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
@@ -373,18 +382,32 @@ public final class UsageStore: ObservableObject {
         }
     }
 
+    /// Validates and saves the agy path. An invalid explicit path is rejected and the previous
+    /// setting is kept, matching the Codex behavior.
     public func applyAgyCustomPath(_ path: String) async {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        geminiConfigurationError = nil
+        // Return in the field can also trigger the default Apply button; apply only once.
+        guard trimmed != agyCustomPath else { return }
+        if !trimmed.isEmpty {
+            do { _ = try ExecutableLocator.resolve(.gemini, customPath: trimmed) }
+            catch {
+                geminiConfigurationError = (error as? UsageError) ?? .cliNotFound
+                return
+            }
+        }
         agyCustomPath = trimmed
         defaults.set(trimmed, forKey: "agyExecutablePath")
         if let agyClient = geminiClient as? GeminiAgyClient {
             agyClient.customPath = trimmed
         }
-        refreshGemini()
+        updateResolvedPath(.gemini)
+        restart(.gemini)
     }
 
     public func refreshClaude() {
-        guard running, claudeRefreshTask == nil else { return }
+        guard running, isClaudeEnabled, claudeRefreshTask == nil else { return }
+        updateResolvedPath(.claude)
         claudeScheduled?.cancel()
         claudeScheduled = nil
         isClaudeRefreshing = true
@@ -403,18 +426,21 @@ public final class UsageStore: ObservableObject {
                 }
                 self.claudeLastUpdated = Date()
                 self.claudeError = nil
+                self.claudeFailures = 0
             } catch {
                 guard !Task.isCancelled else { return }
                 self.claudeError = (error as? UsageError) ?? .requestFailed
+                self.claudeFailures = min(self.claudeFailures + 1, 4)
             }
             self.isClaudeRefreshing = false
             self.claudeRefreshTask = nil
-            self.scheduleClaude(after: 60)
+            self.scheduleClaude(after: self.claudeError == nil ? 60 : self.retryDelay(failures: self.claudeFailures))
         }
     }
 
     private func scheduleClaude(after seconds: TimeInterval) {
-        guard running else { return }
+        guard running, isClaudeEnabled else { return }
+        claudeRetryDelay = seconds
         claudeScheduled?.cancel()
         claudeScheduled = Task { [weak self] in
             do { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
@@ -425,12 +451,107 @@ public final class UsageStore: ObservableObject {
 
     public func applyClaudeCustomPath(_ path: String) async {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        claudeConfigurationError = nil
+        guard trimmed != claudeCustomPath else { return }
+        if !trimmed.isEmpty {
+            do { _ = try ExecutableLocator.resolve(.claude, customPath: trimmed) }
+            catch {
+                claudeConfigurationError = (error as? UsageError) ?? .cliNotFound
+                return
+            }
+        }
         claudeCustomPath = trimmed
         defaults.set(trimmed, forKey: "claudeExecutablePath")
         if let client = claudeClient as? ClaudeClient {
             client.customPath = trimmed
         }
-        refreshClaude()
+        updateResolvedPath(.claude)
+        restart(.claude)
+    }
+
+    /// Records which executable a provider will run, for Settings ("Using …").
+    private func updateResolvedPath(_ kind: ProviderKind) {
+        switch kind {
+        case .gemini: geminiResolvedPath = (try? ExecutableLocator.resolve(.gemini, customPath: agyCustomPath))?.path
+        case .claude: claudeResolvedPath = (try? ExecutableLocator.resolve(.claude, customPath: claudeCustomPath))?.path
+        case .codex: break
+        }
+    }
+
+    /// Gemini/Claude: drops any in-flight read (cancelling its child process) and polls again right
+    /// away. Codex: only polls; its in-flight read is already invalidated by the disable path.
+    private func restart(_ provider: ProviderKind) {
+        switch provider {
+        case .gemini:
+            geminiRefreshTask?.cancel()
+            geminiRefreshTask = nil
+            isGeminiRefreshing = false
+            geminiFailures = 0
+            refreshGemini()
+        case .claude:
+            claudeRefreshTask?.cancel()
+            claudeRefreshTask = nil
+            isClaudeRefreshing = false
+            claudeFailures = 0
+            refreshClaude()
+        case .codex:
+            refreshCodex()
+        }
+    }
+
+    private func providerEnablementChanged(_ provider: ProviderKind, from old: Bool, to enabled: Bool) {
+        guard old != enabled else { return }
+        switch provider {
+        case .codex:
+            defaults.set(enabled, forKey: "providerEnabledCodex")
+            if !enabled {
+                // Invalidate any in-flight read, then shut the app-server child down.
+                epoch = UUID()
+                scheduled?.cancel()
+                scheduled = nil
+                refreshTask?.cancel()
+                refreshTask = nil
+                isRefreshing = false
+                snapshot = nil
+                lastUpdated = nil
+                error = nil
+                needsRefresh = false
+                failures = 0
+                let client = self.client
+                let previous = codexShutdown
+                codexShutdown = Task {
+                    await previous?.value
+                    await client.stop()
+                }
+            }
+        case .gemini:
+            defaults.set(enabled, forKey: "providerEnabledGemini")
+            if !enabled {
+                geminiScheduled?.cancel()
+                geminiScheduled = nil
+                geminiRefreshTask?.cancel()
+                geminiRefreshTask = nil
+                isGeminiRefreshing = false
+                geminiSnapshot = nil
+                geminiLastUpdated = nil
+                geminiError = nil
+                geminiFailures = 0
+            }
+        case .claude:
+            defaults.set(enabled, forKey: "providerEnabledClaude")
+            if !enabled {
+                claudeScheduled?.cancel()
+                claudeScheduled = nil
+                claudeRefreshTask?.cancel()
+                claudeRefreshTask = nil
+                isClaudeRefreshing = false
+                claudeSnapshot = nil
+                claudeLastUpdated = nil
+                claudeError = nil
+                claudeFailures = 0
+            }
+        }
+        if enabled { restart(provider) }
     }
 
     public func applyCustomPath(_ path: String) async {
@@ -477,12 +598,13 @@ public final class UsageStore: ObservableObject {
     }
 
     private func schedule(after seconds: TimeInterval) {
-        guard running else { return }
+        guard running, isCodexEnabled else { return }
         scheduled?.cancel()
         scheduled = Task { [weak self] in
             do { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
             catch { return }
-            self?.refresh()
+            // Codex has its own cadence; Gemini and Claude keep their own timers.
+            self?.refreshCodex()
         }
     }
 }

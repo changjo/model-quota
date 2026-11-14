@@ -23,7 +23,7 @@ final class WeeklyUsageTrackerTests: XCTestCase {
 
         let resetsAt: Int64 = 1790494868 // 2026-09-27 16:41:08 KST
         let cycleStart = Date(timeIntervalSince1970: TimeInterval(resetsAt) - (7 * 86400)) // 2026-09-20 16:41:08 KST (Sunday)
-        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test")
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test", legacySuiteNames: [])
 
         // Day 1 (index 0): Sunday evening (1 hour after start)
         tracker.record(resetsAt: resetsAt, usedPercent: 10.0, now: cycleStart.addingTimeInterval(3600), calendar: calendar)
@@ -51,7 +51,7 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         df.dateFormat = "yyyy-MM-dd HH:mm:ss"
 
         let resetsAt: Int64 = 1790494868 // 2026-09-27 16:41:08 KST
-        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test")
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test", legacySuiteNames: [])
 
         // Sunday 20:00:00 (Day 1 / index 0)
         let sun = df.date(from: "2026-09-20 20:00:00")!
@@ -73,7 +73,7 @@ final class WeeklyUsageTrackerTests: XCTestCase {
     }
 
     func testWeeklyCycleResetStartsNewRecord() {
-        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test")
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test", legacySuiteNames: [])
         let resetsAt1: Int64 = 1790494868
         let now1 = Date(timeIntervalSince1970: TimeInterval(resetsAt1) - 86400)
         tracker.record(resetsAt: resetsAt1, usedPercent: 80.0, now: now1)
@@ -87,7 +87,7 @@ final class WeeklyUsageTrackerTests: XCTestCase {
     }
 
     func testUsageDecreaseHandledSafely() {
-        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test")
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test", legacySuiteNames: [])
         let resetsAt: Int64 = 1790494868
         let now = Date(timeIntervalSince1970: TimeInterval(resetsAt) - 5 * 86400)
         tracker.record(resetsAt: resetsAt, usedPercent: 50.0, now: now)
@@ -103,7 +103,7 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Asia/Seoul")!
 
-        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test")
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test", legacySuiteNames: [])
         let resetsAt: Int64 = 1790494868 // 2026-09-27 16:41:08 KST
         let cycleStart = Date(timeIntervalSince1970: TimeInterval(resetsAt) - (7 * 86400)) // Sunday Sep 20 16:41:08
 
@@ -118,14 +118,14 @@ final class WeeklyUsageTrackerTests: XCTestCase {
     }
 
     func testClearRemovesCycle() {
-        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test")
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test", legacySuiteNames: [])
         tracker.record(resetsAt: 1790494868, usedPercent: 15.0, now: Date())
         XCTAssertNotNil(tracker.currentCycle)
 
         tracker.clear()
         XCTAssertNil(tracker.currentCycle)
 
-        let reloaded = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test")
+        let reloaded = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_test", legacySuiteNames: [])
         XCTAssertNil(reloaded.currentCycle)
     }
 
@@ -143,11 +143,11 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         // In LA:    2026-09-21 17:30:00 (Monday  -> Day 2 / index 1)
         let instant = Date(timeIntervalSince1970: 1790037000)
 
-        let seoulTracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_seoul")
+        let seoulTracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_seoul", legacySuiteNames: [])
         seoulTracker.record(resetsAt: resetsAt, usedPercent: 15.0, now: instant, calendar: seoulCalWithTz)
         XCTAssertEqual(seoulTracker.currentCycle?.dailyUsage[2], 15.0, "In Seoul, 9:30 AM Tuesday must record in Day 3")
 
-        let laTracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_la")
+        let laTracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_la", legacySuiteNames: [])
         laTracker.record(resetsAt: resetsAt, usedPercent: 15.0, now: instant, calendar: laCal)
         XCTAssertEqual(laTracker.currentCycle?.dailyUsage[1], 15.0, "In LA, 5:30 PM Monday must record in Day 2")
     }
@@ -159,7 +159,7 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         """
         defaults.set(Data(legacyJSON.utf8), forKey: "tracker_legacy")
 
-        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_legacy")
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_legacy", legacySuiteNames: [])
         XCTAssertEqual(tracker.currentCycle?.dailyUsage.count, 7)
         XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 92.0)
 
@@ -185,7 +185,7 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         """
         defaults.set(Data(corruptedJSON.utf8), forKey: "tracker_corrupted")
 
-        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_corrupted")
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_corrupted", legacySuiteNames: [])
         XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 92.0, "Monday usage should be restored from corrupted Tuesday absorption")
         XCTAssertEqual(tracker.currentCycle?.dailyUsage[2], 3.0, "Tuesday usage should be reduced by the restored Monday usage")
         XCTAssertTrue(tracker.currentCycle?.offlineGapDays.contains(1) == true)
@@ -198,7 +198,7 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         """
         defaults.set(Data(wednesdayCorruptedJSON.utf8), forKey: "tracker_wed_corrupted")
 
-        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_wed_corrupted")
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_wed_corrupted", legacySuiteNames: [])
         XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 92.0, "Monday usage must be restored to 92.0")
         XCTAssertEqual(tracker.currentCycle?.dailyUsage[2], 5.0, "Tuesday usage must be restored to 5.0")
         XCTAssertEqual(tracker.currentCycle?.dailyUsage[3], 0.0, "Wednesday usage must be 0.0 since no new usage beyond 97.0")
@@ -218,7 +218,7 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         """
         defaults.set(Data(validSavedJSON.utf8), forKey: "tracker_reload_test")
 
-        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_reload_test")
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_reload_test", legacySuiteNames: [])
         XCTAssertEqual(tracker.currentCycle?.dailyUsage[1], 92.0)
         XCTAssertEqual(tracker.currentCycle?.dailyUsage[2], 5.0)
 
@@ -239,7 +239,7 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         df.dateFormat = "yyyy-MM-dd HH:mm:ss"
 
         let resetsAt: Int64 = 1790494868 // 2026-09-27 16:41:08 KST
-        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_full_week")
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_full_week", legacySuiteNames: [])
 
         // Sunday Day 1 (index 0): 5%
         tracker.record(resetsAt: resetsAt, usedPercent: 5.0, accountId: "test", now: df.date(from: "2026-09-20 20:00:00")!, calendar: calendar)
@@ -288,7 +288,7 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         df.timeZone = calendar.timeZone
         df.dateFormat = "yyyy-MM-dd HH:mm:ss"
 
-        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_mid_cycle_wed")
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "tracker_mid_cycle_wed", legacySuiteNames: [])
         let wed = df.date(from: "2026-09-23 10:00:00")!
         tracker.record(resetsAt: 1790494868, usedPercent: 97.0, accountId: "00000000-0000-4000-8000-000000000001", now: wed, calendar: calendar)
 
@@ -583,7 +583,96 @@ final class WeeklyUsageTrackerTests: XCTestCase {
         )
         XCTAssertEqual(WeeklyUsageTracker.realigned(cycle), cycle)
     }
+
+    private func utcCalendar() -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar
+    }
+
+    private func temporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url
+    }
+
+    func testSwitchingAccountsKeepsEachAccountsHistory() throws {
+        let calendar = utcCalendar()
+        let directory = try temporaryDirectory()
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "accounts", backupDirectory: directory,
+                                         legacySuiteNames: [], calendar: calendar)
+        let resetA: Int64 = 1_795_165_200 // 2026-11-20 09:00 UTC
+        let resetB = resetA + 10 * 3600   // a different account whose window ends 10h later
+        let cycleStart = Date(timeIntervalSince1970: TimeInterval(resetA) - WeeklyUsageTracker.cycleDuration)
+        let day1 = cycleStart.addingTimeInterval(86400 + 3600)
+        let day2 = day1.addingTimeInterval(86400)
+        let day3 = day2.addingTimeInterval(86400)
+
+        tracker.record(resetsAt: resetA, usedPercent: 10, accountId: "A", now: day1, calendar: calendar)
+        tracker.record(resetsAt: resetA, usedPercent: 30, accountId: "A", now: day2, calendar: calendar)
+        tracker.record(resetsAt: resetB, usedPercent: 5, accountId: "B", now: day2.addingTimeInterval(600), calendar: calendar)
+        tracker.record(resetsAt: resetA, usedPercent: 30, accountId: "A", now: day3, calendar: calendar)
+
+        let cycle = try XCTUnwrap(tracker.currentCycle)
+        XCTAssertEqual(cycle.accountId, "A")
+        XCTAssertEqual(cycle.dailyUsage[1], 10)
+        XCTAssertEqual(cycle.dailyUsage[2], 20)
+        XCTAssertEqual(cycle.dailyUsage[3], 0)
+    }
+
+    func testHistoryHealingSkipsPriorsThatStartOnADifferentDay() throws {
+        let calendar = utcCalendar()
+        let directory = try temporaryDirectory()
+        let reset: Int64 = 1_795_136_400      // 2026-11-20 01:00 UTC → cycle starts on the 13th
+        let priorReset = reset - 3 * 3600     // 2026-11-19 22:00 UTC → cycle starts on the 12th
+        func cycle(_ resetsAt: Int64, _ usage: [Double], account: String = "acc") -> WeeklyUsageCycle {
+            WeeklyUsageCycle(resetsAt: resetsAt,
+                             cycleStart: Date(timeIntervalSince1970: TimeInterval(resetsAt) - WeeklyUsageTracker.cycleDuration),
+                             initialPercent: usage.reduce(0, +), initialDayIndex: 0, dayCount: usage.count,
+                             accountId: account, knownDailyUsage: usage, knownOfflineGapDays: [])
+        }
+        // The same calendar days, indexed from two different start days.
+        let current = cycle(reset, [0, 9, 9, 0, 20, 0, 0, 0])
+        let prior = cycle(priorReset, [0, 0, 9, 9, 0, 20, 0, 0])
+        let history = try JSONEncoder().encode([String(priorReset): prior])
+        try history.write(to: directory.appendingPathComponent("heal_days_history.json"))
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "heal_days", backupDirectory: directory,
+                                         legacySuiteNames: [], calendar: calendar)
+        XCTAssertEqual(tracker.healFromHistory(cycle: current, calendar: calendar).dailyUsage, current.dailyUsage)
+    }
+
+    func testHistoryHealingIgnoresOtherAccounts() throws {
+        let calendar = utcCalendar()
+        let directory = try temporaryDirectory()
+        let reset: Int64 = 1_795_165_200
+        let start = Date(timeIntervalSince1970: TimeInterval(reset) - WeeklyUsageTracker.cycleDuration)
+        let current = WeeklyUsageCycle(resetsAt: reset, cycleStart: start, initialPercent: 20, initialDayIndex: 0,
+                                       dayCount: 8, accountId: "A", knownDailyUsage: [0, 0, 20, 0, 0, 0, 0, 0],
+                                       knownOfflineGapDays: [])
+        let other = WeeklyUsageCycle(resetsAt: reset, cycleStart: start, initialPercent: 15, initialDayIndex: 0,
+                                     dayCount: 8, accountId: "B", knownDailyUsage: [0, 15, 0, 0, 0, 0, 0, 0],
+                                     knownOfflineGapDays: [])
+        try JSONEncoder().encode(["B|\(reset)": other]).write(to: directory.appendingPathComponent("heal_acct_history.json"))
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "heal_acct", backupDirectory: directory,
+                                         legacySuiteNames: [], calendar: calendar)
+        XCTAssertEqual(tracker.healFromHistory(cycle: current, calendar: calendar).dailyUsage, current.dailyUsage)
+    }
+
+    func testHistoryIsPrunedToRecentCycles() throws {
+        let calendar = utcCalendar()
+        let directory = try temporaryDirectory()
+        let tracker = WeeklyUsageTracker(userDefaults: defaults, storageKey: "prune", backupDirectory: directory,
+                                         legacySuiteNames: [], calendar: calendar)
+        var reset: Int64 = 1_700_000_000
+        for _ in 0..<(WeeklyUsageTracker.historyLimit + 5) {
+            let now = Date(timeIntervalSince1970: TimeInterval(reset) - 3600)
+            tracker.record(resetsAt: reset, usedPercent: 1, accountId: "A", now: now, calendar: calendar)
+            reset += Int64(WeeklyUsageTracker.cycleDuration)
+        }
+        let data = try Data(contentsOf: directory.appendingPathComponent("prune_history.json"))
+        let map = try JSONDecoder().decode([String: WeeklyUsageCycle].self, from: data)
+        XCTAssertEqual(map.count, WeeklyUsageTracker.historyLimit)
+        XCTAssertTrue(map.values.contains { $0.resetsAt == reset - Int64(WeeklyUsageTracker.cycleDuration) })
+    }
 }
-
-
-

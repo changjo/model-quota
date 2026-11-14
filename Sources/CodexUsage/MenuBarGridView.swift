@@ -11,7 +11,8 @@ final class MenuBarImageRenderer {
     private var cachedImage: NSImage?
 
     func image(for items: [ProviderUsageItem]) -> NSImage? {
-        let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+        // Render for the sharpest attached display so a non-Retina key screen doesn't blur a Retina menu bar.
+        let scale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2.0
         if let cachedItems, cachedItems == items, cachedScale == scale, let cachedImage {
             return cachedImage
         }
@@ -83,8 +84,7 @@ struct MenuBarGridView: View {
         if let image = MenuBarImageRenderer.shared.image(for: items) {
             Image(nsImage: image)
         } else {
-            Text("Codex")
-                .font(.system(size: 11.5, weight: .medium))
+            Image(systemName: "gauge.with.dots.needle.33percent")
         }
     }
 }

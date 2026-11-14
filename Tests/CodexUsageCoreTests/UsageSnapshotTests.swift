@@ -52,3 +52,22 @@ final class UsageSnapshotTests: XCTestCase {
         XCTAssertThrowsError(try decode(#"{"rateLimits":{"primary":{"windowDurationMins":300}}}"#))
     }
 }
+
+final class QuotaLevelTests: XCTestCase {
+    func testThresholds() {
+        XCTAssertEqual(QuotaLevel(remainingPercent: 100), .normal)
+        XCTAssertEqual(QuotaLevel(remainingPercent: 26), .normal)
+        XCTAssertEqual(QuotaLevel(remainingPercent: 25), .low)
+        XCTAssertEqual(QuotaLevel(remainingPercent: 11), .low)
+        XCTAssertEqual(QuotaLevel(remainingPercent: 10), .critical)
+        XCTAssertEqual(QuotaLevel(remainingPercent: 0), .critical)
+    }
+
+    func testRemainingPercentMath() {
+        XCTAssertEqual(QuotaMath.remainingPercent(remaining: 74.9), 74)
+        XCTAssertEqual(QuotaMath.remainingPercent(remaining: 28.999999999999996), 29)
+        XCTAssertEqual(QuotaMath.remainingPercent(remaining: 150), 100)
+        XCTAssertEqual(QuotaMath.remainingPercent(remaining: -5), 0)
+        XCTAssertEqual(QuotaMath.remainingPercent(remaining: .nan), 0)
+    }
+}

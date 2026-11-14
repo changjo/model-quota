@@ -99,4 +99,23 @@ final class AppServerClientTests: XCTestCase {
         try assertStopped(executable)
         await firstStop.value
     }
+
+    func testChildGetsUserInstallDirectoriesOnPathWhenLaunchedFromFinder() async throws {
+        // Finder/Login Items launch apps with a minimal PATH; `#!/usr/bin/env node` launchers need more.
+        let saved = ProcessInfo.processInfo.environment["PATH"]
+        setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin", 1)
+        defer { if let saved { setenv("PATH", saved, 1) } else { unsetenv("PATH") } }
+        let executable = try fixture("normal")
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
+        let client = CodexAppServerClient(requestTimeout: 2)
+        try await client.start(executable: executable)
+        await client.stop()
+        let childPath = try String(contentsOf: executable.deletingLastPathComponent().appendingPathComponent("path"))
+        let entries = childPath.split(separator: ":").map(String.init)
+        let ownDirectory = executable.deletingLastPathComponent().path
+        XCTAssertEqual(entries.first, ownDirectory, "The CLI's own directory comes first for nvm-style installs")
+        for directory in ["/opt/homebrew/bin", "/usr/local/bin", NSHomeDirectory() + "/.local/bin", "/usr/bin"] {
+            XCTAssertTrue(entries.contains(directory), "\(directory) missing from \(childPath)")
+        }
+    }
 }

@@ -16,13 +16,25 @@ public final class WeeklyUsageTracker: ObservableObject {
     /// How far the reported window may move later before the cycle is re-anchored to it.
     /// Large enough to ignore second-level `resetsAt` jitter.
     static let realignmentTolerance: TimeInterval = 3600
+    /// Number of past cycles kept in the history file (per storage key, all accounts).
+    public static let historyLimit = 12
+
+    /// History entries are per account: two accounts can have windows that end within a day.
+    static func historyKey(for cycle: WeeklyUsageCycle) -> String {
+        "\(cycle.accountId ?? "-")|\(cycle.resetsAt)"
+    }
+
+    /// A missing account id (older data, providers without accounts) matches any account.
+    static func sameAccount(_ a: String?, _ b: String?) -> Bool {
+        a == nil || b == nil || a == b
+    }
 
     public init(
         userDefaults: UserDefaults = .standard,
         storageKey: String = "codex_usage_weekly_tracker",
         backupDirectory: URL? = nil,
         legacySuiteNames: [String] = ["dev.changjo.CodexUsage"],
-        calendar: Calendar = .current
+        calendar: Calendar = .autoupdatingCurrent
     ) {
         self.userDefaults = userDefaults
         self.storageKey = storageKey
@@ -62,7 +74,7 @@ public final class WeeklyUsageTracker: ObservableObject {
     /// the jitter tolerance the cycle was treated as unchanged, `cycleStart` stayed put, and the
     /// day count grew without bound. Days that fall before the realigned start are folded into
     /// the new first day so no recorded usage is lost.
-    public static func realigned(_ cycle: WeeklyUsageCycle, calendar: Calendar = .current) -> WeeklyUsageCycle {
+    public static func realigned(_ cycle: WeeklyUsageCycle, calendar: Calendar = .autoupdatingCurrent) -> WeeklyUsageCycle {
         let resetDate = Date(timeIntervalSince1970: TimeInterval(cycle.resetsAt))
         let windowStart = resetDate.addingTimeInterval(-cycleDuration)
         // A cycle without recorded usage has nothing to misplace, so it can follow the window exactly.
@@ -199,20 +211,26 @@ public final class WeeklyUsageTracker: ObservableObject {
             return cycle
         }
 
+        let calendar = calendar ?? self.calendar
         var healed = cycle
         let matchingPriors = historyMap.values
-            .filter { Self.isSameCycle(resetsAtA: $0.resetsAt, resetsAtB: cycle.resetsAt) }
+            .filter {
+                Self.isSameCycle(resetsAtA: $0.resetsAt, resetsAtB: cycle.resetsAt)
+                    && Self.sameAccount($0.accountId, cycle.accountId)
+            }
             .sorted { $0.lastObservedAt > $1.lastObservedAt }
 
+        let cycleStartDay = calendar.startOfDay(for: cycle.cycleStart)
         for prior in matchingPriors {
             // Day indices are only comparable when both cycles share the same start day.
-            let alignedPrior = Self.realigned(prior, calendar: calendar ?? self.calendar)
+            let alignedPrior = Self.realigned(prior, calendar: calendar)
+            guard calendar.startOfDay(for: alignedPrior.cycleStart) == cycleStartDay else { continue }
             healed = healCycle(corrupted: healed, fromPrior: alignedPrior)
         }
         return healed
     }
 
-    public func record(snapshot: UsageSnapshot, now: Date = Date(), calendar: Calendar = .current) {
+    public func record(snapshot: UsageSnapshot, now: Date = Date(), calendar: Calendar = .autoupdatingCurrent) {
         guard let weeklyQuota = snapshot.quotas.first(where: { $0.durationMinutes == 10080 }),
               let resetsAt = weeklyQuota.window.resetsAt else {
             return
@@ -225,7 +243,7 @@ public final class WeeklyUsageTracker: ObservableObject {
         usedPercent: Double,
         accountId: String? = nil,
         now: Date = Date(),
-        calendar: Calendar = .current
+        calendar: Calendar = .autoupdatingCurrent
     ) {
         let resetDate = Date(timeIntervalSince1970: TimeInterval(resetsAt))
 
@@ -390,13 +408,21 @@ public final class WeeklyUsageTracker: ObservableObject {
                let decoded = try? JSONDecoder().decode([String: WeeklyUsageCycle].self, from: existingData) {
                 historyMap = decoded
             }
-            // Consolidate drifted entries for the same cycle to prevent duplicate clutter
-            for (key, existing) in historyMap {
-                if existing.resetsAt != cycle.resetsAt && Self.isSameCycle(resetsAtA: existing.resetsAt, resetsAtB: cycle.resetsAt) {
-                    historyMap.removeValue(forKey: key)
+            // Consolidate drifted (and legacy-keyed) entries for this account's cycle, never
+            // another account's: two accounts may have windows that end within a day.
+            let key = Self.historyKey(for: cycle)
+            for (existingKey, existing) in historyMap where existingKey != key {
+                if Self.sameAccount(existing.accountId, cycle.accountId),
+                   Self.isSameCycle(resetsAtA: existing.resetsAt, resetsAtB: cycle.resetsAt) {
+                    historyMap.removeValue(forKey: existingKey)
                 }
             }
-            historyMap[String(cycle.resetsAt)] = cycle
+            historyMap[key] = cycle
+            if historyMap.count > Self.historyLimit {
+                let keep = historyMap.sorted { $0.value.lastObservedAt > $1.value.lastObservedAt }
+                    .prefix(Self.historyLimit).map(\.key)
+                historyMap = historyMap.filter { keep.contains($0.key) }
+            }
             if let historyData = try? JSONEncoder().encode(historyMap) {
                 try historyData.write(to: historyURL, options: .atomic)
             }

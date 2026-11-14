@@ -6,7 +6,7 @@ public struct ClaudeUsageSnapshot: Codable, Equatable, Sendable {
         public let resetsAt: Date?
 
         public var remainingPercent: Int {
-            max(0, min(100, Int((100.0 - utilization).rounded())))
+            QuotaMath.remainingPercent(remaining: 100.0 - utilization)
         }
 
         public var remainingFraction: Double {
@@ -70,38 +70,28 @@ public struct ClaudeUsageSnapshot: Codable, Equatable, Sendable {
         self.fetchedAt = fetchedAt
     }
 
-    public var primaryRemainingPercent: Int {
-        sevenDay?.remainingPercent ?? (fiveHour?.remainingPercent ?? 100)
+    /// The weekly window, else the session window; nil when the CLI reported neither.
+    public var primaryRemainingPercent: Int? {
+        sevenDay?.remainingPercent ?? fiveHour?.remainingPercent
     }
 
     public func formattedValue(for mode: MenuBarDisplayMode) -> String {
-        let session = fiveHour
-        let weekly = sevenDay
-
+        let session = fiveHour?.remainingPercent
+        let weekly = sevenDay?.remainingPercent
+        let value: String?
         switch mode {
         case .both:
-            if let s = session, let w = weekly {
-                return "\(s.remainingPercent)% / \(w.remainingPercent)%"
-            } else if let w = weekly {
-                return "\(w.remainingPercent)%"
-            } else if let s = session {
-                return "\(s.remainingPercent)%"
-            }
-            return "\(primaryRemainingPercent)%"
+            value = [session, weekly].compactMap { $0 }.map { "\($0)%" }.joined(separator: " / ")
         case .weeklyOnly:
-            if let w = weekly { return "\(w.remainingPercent)%" }
-            if let s = session { return "\(s.remainingPercent)%" }
-            return "\(primaryRemainingPercent)%"
+            value = (weekly ?? session).map { "\($0)%" }
         case .sessionOnly:
-            if let s = session { return "\(s.remainingPercent)%" }
-            if let w = weekly { return "\(w.remainingPercent)%" }
-            return "\(primaryRemainingPercent)%"
+            value = (session ?? weekly).map { "\($0)%" }
         case .mostRestrictive:
-            if let s = session, let w = weekly {
-                return "\(min(s.remainingPercent, w.remainingPercent))%"
-            }
-            return "\(primaryRemainingPercent)%"
+            value = [session, weekly].compactMap { $0 }.min().map { "\($0)%" }
         }
+        // No reported window is "unknown", never a made-up 100%.
+        guard let value, !value.isEmpty else { return "?" }
+        return value
     }
 
     public static func decode(from data: Data) throws -> ClaudeUsageSnapshot {
@@ -130,27 +120,23 @@ public struct ClaudeUsageSnapshot: Codable, Equatable, Sendable {
 
         struct WindowPayload: Decodable {
             let utilization: Double?
-            let resets_at: Date?
+            let resets_at: String?
+
+            enum CodingKeys: String, CodingKey { case utilization, resets_at }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                utilization = try container.decodeIfPresent(Double.self, forKey: .utilization)
+                // An unexpected timestamp type means "unknown reset", not an unreadable response.
+                resets_at = try? container.decodeIfPresent(String.self, forKey: .resets_at)
+            }
         }
 
         struct BreakdownPayload: Decodable {
-            let rows: [BreakdownRow]?
+            let rows: [Lenient<BreakdownRow>]?
         }
 
         let decoder = JSONDecoder()
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let standardFormatter = ISO8601DateFormatter()
-        standardFormatter.formatOptions = [.withInternetDateTime]
-
-        decoder.dateDecodingStrategy = .custom { d in
-            let container = try d.singleValueContainer()
-            let dateStr = try container.decode(String.self)
-            if let date = isoFormatter.date(from: dateStr) ?? standardFormatter.date(from: dateStr) {
-                return date
-            }
-            return Date()
-        }
 
         // The stream-json format sends JSON objects separated by newlines.
         // Try decoding line by line first to find the control_response.
@@ -162,21 +148,18 @@ public struct ClaudeUsageSnapshot: Codable, Equatable, Sendable {
                    env.type == "control_response" || env.response != nil {
                     if let ctrl = env.response {
                         if ctrl.subtype == "error" {
-                            if (ctrl.error ?? "").contains("login") || (ctrl.error ?? "").contains("auth") {
-                                throw UsageError.loginRequired
-                            }
-                            throw UsageError.requestFailed
+                            throw UsageError.classifyCLIFailure(ctrl.error ?? "")
                         }
                         if let payload = ctrl.response {
                             let fiveHour: Window?
                             if let fh = payload.rate_limits?.five_hour, let u = fh.utilization {
-                                fiveHour = Window(utilization: u, resetsAt: fh.resets_at)
+                                fiveHour = Window(utilization: u, resetsAt: ISODate.parse(fh.resets_at))
                             } else {
                                 fiveHour = nil
                             }
                             let sevenDay: Window?
                             if let sd = payload.rate_limits?.seven_day, let u = sd.utilization {
-                                sevenDay = Window(utilization: u, resetsAt: sd.resets_at)
+                                sevenDay = Window(utilization: u, resetsAt: ISODate.parse(sd.resets_at))
                             } else {
                                 sevenDay = nil
                             }
@@ -185,7 +168,7 @@ public struct ClaudeUsageSnapshot: Codable, Equatable, Sendable {
                                 rateLimitsAvailable: payload.rate_limits_available ?? true,
                                 fiveHour: fiveHour,
                                 sevenDay: sevenDay,
-                                breakdownRows: payload.rate_limits?.seven_day_breakdown?.rows ?? []
+                                breakdownRows: payload.rate_limits?.seven_day_breakdown?.rows?.compactMap(\.value) ?? []
                             )
                         }
                     }

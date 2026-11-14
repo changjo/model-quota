@@ -16,5 +16,6 @@ xcrun swiftc "${compiler_options[@]}" -I "$render_dir" -L "$render_dir" -lCodexU
     Sources/CodexUsage/WeeklyHistogramView.swift \
     Sources/CodexUsage/GeminiQuotaView.swift \
     Sources/CodexUsage/ClaudeQuotaView.swift \
+    Sources/CodexUsage/MenuBarGridView.swift \
     Sources/CodexUsage/SettingsView.swift scripts/render-ui.swift -o "$render_dir/render"
 "$render_dir/render" "$output_dir"

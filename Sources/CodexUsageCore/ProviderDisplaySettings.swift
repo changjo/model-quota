@@ -24,4 +24,13 @@ public struct ProviderUsageItem: Identifiable, Equatable, Sendable {
     public var displayText: String {
         "\(label) \(summaryValue)"
     }
+
+    /// Spoken form: the values are remaining capacity, and "?" / "…" are not numbers.
+    public var accessibilityText: String {
+        switch summaryValue {
+        case "?": return "\(label): unavailable"
+        case "…": return "\(label): checking"
+        default: return "\(label): \(summaryValue) remaining"
+        }
+    }
 }

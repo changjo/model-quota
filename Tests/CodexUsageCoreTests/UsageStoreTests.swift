@@ -41,9 +41,64 @@ final class UsageStoreTests: XCTestCase {
         }
         XCTFail("Condition did not become true")
     }
-    func makeStore(_ connection: Connection) -> UsageStore {
-        UsageStore(client: connection, defaults: UserDefaults(suiteName: UUID().uuidString)!,
+    /// Counts reads so tests can prove which providers a refresh path touches, and never spawns a real CLI.
+    final class CountingGemini: GeminiUsageService {
+        var reads = 0
+        var error: UsageError? = .cliNotFound
+        func readUsage() async throws -> GeminiUsageSnapshot {
+            reads += 1
+            if let error { throw error }
+            return GeminiUsageSnapshot(groups: [])
+        }
+    }
+    final class CountingClaude: ClaudeUsageService {
+        var reads = 0
+        var error: UsageError? = .cliNotFound
+        func readUsage() async throws -> ClaudeUsageSnapshot {
+            reads += 1
+            if let error { throw error }
+            return ClaudeUsageSnapshot()
+        }
+    }
+
+    /// A throwaway preferences suite that is deleted after the test.
+    func makeDefaults() -> UserDefaults {
+        let name = "test.model-quota.\(UUID().uuidString)"
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: name) }
+        return UserDefaults(suiteName: name)!
+    }
+
+    func codexValue(_ store: UsageStore) -> String? {
+        store.menuBarItems.first { $0.id == "codex" }?.summaryValue
+    }
+
+    func makeStore(_ connection: Connection,
+                   gemini: GeminiUsageService? = nil,
+                   claude: ClaudeUsageService? = nil) -> UsageStore {
+        UsageStore(client: connection, geminiClient: gemini ?? CountingGemini(), claudeClient: claude ?? CountingClaude(),
+                   defaults: makeDefaults(), legacySuiteName: nil,
                    locate: { _ in URL(fileURLWithPath: "/usr/bin/true") })
+    }
+
+    func testCodexNotificationRefreshDoesNotRespawnOtherProviders() async throws {
+        let connection = Connection()
+        let gemini = CountingGemini()
+        let claude = CountingClaude()
+        let store = makeStore(connection, gemini: gemini, claude: claude)
+        store.start()
+        await waitUntil { connection.reads == 1 && gemini.reads == 1 && claude.reads == 1 }
+        connection.complete(.success(try snapshot()))
+        await waitUntil { !store.isRefreshing }
+
+        // A Codex rate-limit notification must refresh only Codex.
+        connection.onNotification?(.rateLimitsChanged(limitId: "codex"))
+        await waitUntil { connection.reads == 2 }
+        connection.complete(.success(try snapshot()))
+        await waitUntil { !store.isRefreshing }
+        XCTAssertEqual(gemini.reads, 1)
+        XCTAssertEqual(claude.reads, 1)
+
+        await store.stop()
     }
 
     func testDuplicateRefreshDoesNotStartParallelReads() async throws {
@@ -55,7 +110,7 @@ final class UsageStoreTests: XCTestCase {
         connection.complete(.success(try snapshot()))
         await waitUntil { !store.isRefreshing }
         XCTAssertEqual(connection.reads, 1)
-        XCTAssertEqual(store.menuBarTitle, "Codex 3%")
+        XCTAssertEqual(codexValue(store), "3%")
         XCTAssertNotNil(store.lastUpdated)
         await store.stop()
     }
@@ -70,7 +125,7 @@ final class UsageStoreTests: XCTestCase {
         await waitUntil { !store.isRefreshing }
         XCTAssertNil(store.snapshot)
         XCTAssertNil(store.lastUpdated)
-        XCTAssertEqual(store.menuBarTitle, "Codex ?")
+        XCTAssertEqual(codexValue(store), "?")
         await store.stop()
     }
 
@@ -98,7 +153,7 @@ final class UsageStoreTests: XCTestCase {
         await waitUntil { connection.reads == 2 }
         connection.complete(.failure(UsageError.requestFailed))
         await waitUntil { !store.isRefreshing }
-        XCTAssertEqual(store.menuBarTitle, "Codex ?")
+        XCTAssertEqual(codexValue(store), "?")
         XCTAssertNotNil(store.snapshot, "Keep old data for the explicitly stale detail view")
         XCTAssertEqual(store.error, .requestFailed)
         await store.stop()
@@ -124,7 +179,7 @@ final class UsageStoreTests: XCTestCase {
         connection.isConnected = false
         connection.onDisconnect?(.connectionClosed)
         await waitUntil { !store.isRefreshing }
-        XCTAssertEqual(store.menuBarTitle, "Codex ?")
+        XCTAssertEqual(codexValue(store), "?")
         XCTAssertEqual(store.error, .connectionClosed)
         XCTAssertNil(store.lastUpdated)
         await store.stop()
@@ -156,9 +211,10 @@ final class UsageStoreTests: XCTestCase {
 
     func testInvalidCustomPathKeepsWorkingConnectionAndSavedPreference() async throws {
         let connection = Connection()
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let defaults = makeDefaults()
         defaults.set("/working/codex", forKey: "codexExecutablePath")
-        let store = UsageStore(client: connection, defaults: defaults, locate: { path in
+        let store = UsageStore(client: connection, geminiClient: CountingGemini(), claudeClient: CountingClaude(),
+                               defaults: defaults, legacySuiteName: nil, locate: { path in
             guard path != "/missing/codex" else { throw UsageError.cliNotFound }
             return URL(fileURLWithPath: "/working/codex")
         })
@@ -170,7 +226,7 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.configurationError, .cliNotFound)
         XCTAssertEqual(store.customPath, "/working/codex")
         XCTAssertEqual(defaults.string(forKey: "codexExecutablePath"), "/working/codex")
-        XCTAssertEqual(store.menuBarTitle, "Codex 3%")
+        XCTAssertEqual(codexValue(store), "3%")
         XCTAssertTrue(connection.isConnected)
         XCTAssertNotNil(store.snapshot)
         await store.stop()
@@ -178,8 +234,9 @@ final class UsageStoreTests: XCTestCase {
 
     func testCustomPathAndAutomaticDetectionPersistAndReconnect() async throws {
         let connection = Connection()
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
-        let store = UsageStore(client: connection, defaults: defaults, locate: { path in
+        let defaults = makeDefaults()
+        let store = UsageStore(client: connection, geminiClient: CountingGemini(), claudeClient: CountingClaude(),
+                               defaults: defaults, legacySuiteName: nil, locate: { path in
             URL(fileURLWithPath: path.isEmpty ? "/automatic/codex" : path)
         })
         await store.applyCustomPath("  /custom/codex\n")
@@ -194,7 +251,7 @@ final class UsageStoreTests: XCTestCase {
         await waitUntil { !store.isRefreshing }
         XCTAssertEqual(store.resolvedPath, "/automatic/codex")
         XCTAssertEqual(defaults.string(forKey: "codexExecutablePath"), "")
-        XCTAssertEqual(store.menuBarTitle, "Codex 3%")
+        XCTAssertEqual(codexValue(store), "3%")
         await store.stop()
     }
 
@@ -253,8 +310,8 @@ final class UsageStoreTests: XCTestCase {
         let geminiData = try Data(contentsOf: fixtureURL)
         let mockGemini = MockGeminiAgyClient(mockData: geminiData)
 
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
-        let store = UsageStore(client: connection, geminiClient: mockGemini, defaults: defaults,
+        let defaults = makeDefaults()
+        let store = UsageStore(client: connection, geminiClient: mockGemini, claudeClient: CountingClaude(), defaults: defaults, legacySuiteName: nil,
                                locate: { _ in URL(fileURLWithPath: "/usr/bin/true") })
         store.showClaudeInMenuBar = false
         store.start()
@@ -291,8 +348,8 @@ final class UsageStoreTests: XCTestCase {
         let geminiData = try Data(contentsOf: fixtureURL)
         let mockGemini = MockGeminiAgyClient(mockData: geminiData)
 
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
-        let store = UsageStore(client: connection, geminiClient: mockGemini, defaults: defaults,
+        let defaults = makeDefaults()
+        let store = UsageStore(client: connection, geminiClient: mockGemini, claudeClient: CountingClaude(), defaults: defaults, legacySuiteName: nil,
                                locate: { _ in URL(fileURLWithPath: "/usr/bin/true") })
         store.start()
         await waitUntil { connection.reads == 1 }
@@ -325,12 +382,12 @@ final class UsageStoreTests: XCTestCase {
         let geminiData = try Data(contentsOf: fixtureURL)
         let mockGemini = MockGeminiAgyClient(mockData: geminiData)
 
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let defaults = makeDefaults()
         let store = UsageStore(
             client: connection,
             geminiClient: mockGemini,
             claudeClient: mockClaude,
-            defaults: defaults,
+            defaults: defaults, legacySuiteName: nil,
             locate: { _ in URL(fileURLWithPath: "/usr/bin/true") }
         )
         store.start()
@@ -372,12 +429,12 @@ final class UsageStoreTests: XCTestCase {
         let geminiData = try Data(contentsOf: fixtureURL)
         let mockGemini = MockGeminiAgyClient(mockData: geminiData)
 
-        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let defaults = makeDefaults()
         let store = UsageStore(
             client: connection,
             geminiClient: mockGemini,
             claudeClient: mockClaude,
-            defaults: defaults,
+            defaults: defaults, legacySuiteName: nil,
             locate: { _ in URL(fileURLWithPath: "/usr/bin/true") }
         )
         store.start()
@@ -406,5 +463,247 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.menuBarItems[2].summaryValue, "40%")
 
         await store.stop()
+    }
+
+    func testEmptyLabelFallsBackToProviderName() async throws {
+        let connection = Connection()
+        let store = makeStore(connection)
+        store.codexLabel = "   "
+        store.geminiLabel = ""
+        store.claudeLabel = " Work "
+        XCTAssertEqual(store.codexName, "Codex")
+        XCTAssertEqual(store.geminiName, "Gemini")
+        XCTAssertEqual(store.claudeName, "Work")
+        XCTAssertEqual(store.menuBarItems.map(\.label), ["Codex", "Gemini", "Work"])
+    }
+
+    func testDisabledProviderIsNotPolledAndIsHiddenFromMenuBar() async throws {
+        let connection = Connection()
+        let gemini = CountingGemini()
+        let claude = CountingClaude()
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: "providerEnabledClaude")
+        let store = UsageStore(client: connection, geminiClient: gemini, claudeClient: claude, defaults: defaults, legacySuiteName: nil,
+                               locate: { _ in URL(fileURLWithPath: "/usr/bin/true") })
+        XCTAssertFalse(store.isClaudeEnabled)
+        store.start()
+        await waitUntil { connection.reads == 1 && gemini.reads == 1 }
+        connection.complete(.success(try snapshot()))
+        await waitUntil { !store.isRefreshing && !store.isGeminiRefreshing }
+        XCTAssertEqual(claude.reads, 0)
+        XCTAssertEqual(store.menuBarItems.map(\.id), ["codex", "gemini"])
+
+        // Disabling clears state and persists; enabling refreshes immediately.
+        store.isGeminiEnabled = false
+        XCTAssertNil(store.geminiError)
+        XCTAssertEqual(defaults.object(forKey: "providerEnabledGemini") as? Bool, false)
+        XCTAssertEqual(store.menuBarItems.map(\.id), ["codex"])
+        store.refresh()
+        XCTAssertFalse(store.isGeminiRefreshing, "A disabled provider must not start a read")
+        XCTAssertEqual(gemini.reads, 1)
+
+        store.isClaudeEnabled = true
+        await waitUntil { claude.reads == 1 }
+        await store.stop()
+    }
+
+    func testDisablingCodexStopsTheAppServer() async throws {
+        let connection = Connection()
+        let store = makeStore(connection)
+        store.start()
+        await waitUntil { connection.reads == 1 }
+        connection.complete(.success(try snapshot()))
+        await waitUntil { !store.isRefreshing && connection.isConnected }
+        store.isCodexEnabled = false
+        await waitUntil { !connection.isConnected }
+        XCTAssertNil(store.snapshot)
+        XCTAssertFalse(store.menuBarItems.contains { $0.id == "codex" })
+        store.refresh()
+        XCTAssertFalse(store.isRefreshing)
+        await store.stop()
+    }
+
+    func testMenuBarFallsBackToFirstEnabledProviderWhenAllHidden() async throws {
+        let store = makeStore(Connection())
+        store.showCodexInMenuBar = false
+        store.showGeminiInMenuBar = false
+        store.showClaudeInMenuBar = false
+        XCTAssertEqual(store.menuBarItems.map(\.id), ["codex"])
+        store.isCodexEnabled = false
+        XCTAssertEqual(store.menuBarItems.map(\.id), ["gemini"])
+        store.isGeminiEnabled = false
+        store.isClaudeEnabled = false
+        XCTAssertTrue(store.menuBarItems.isEmpty)
+    }
+
+    func testFailingProvidersBackOff() async throws {
+        let store = makeStore(Connection())
+        XCTAssertEqual(store.retryDelay(failures: 0), 60)
+        XCTAssertEqual(store.retryDelay(failures: 1), 60)
+        XCTAssertEqual(store.retryDelay(failures: 2), 120)
+        XCTAssertEqual(store.retryDelay(failures: 3), 240)
+        XCTAssertEqual(store.retryDelay(failures: 9), 300)
+    }
+
+    func testInvalidGeminiAndClaudePathsAreRejectedWithoutSaving() async throws {
+        let connection = Connection()
+        let defaults = makeDefaults()
+        let store = UsageStore(client: connection, geminiClient: CountingGemini(), claudeClient: CountingClaude(),
+                               defaults: defaults, legacySuiteName: nil, locate: { _ in URL(fileURLWithPath: "/usr/bin/true") })
+        await store.applyAgyCustomPath("/no/such/agy")
+        XCTAssertEqual(store.geminiConfigurationError, .cliNotFound)
+        XCTAssertEqual(store.agyCustomPath, "")
+        XCTAssertNil(defaults.string(forKey: "agyExecutablePath"))
+
+        await store.applyClaudeCustomPath("/no/such/claude")
+        XCTAssertEqual(store.claudeConfigurationError, .cliNotFound)
+        XCTAssertEqual(store.claudeCustomPath, "")
+
+        await store.applyAgyCustomPath(" /usr/bin/true ")
+        XCTAssertNil(store.geminiConfigurationError)
+        XCTAssertEqual(store.agyCustomPath, "/usr/bin/true")
+        XCTAssertEqual(defaults.string(forKey: "agyExecutablePath"), "/usr/bin/true")
+    }
+
+    func testApplyingPathRetriesImmediatelyEvenWhileARefreshIsInFlight() async throws {
+        final class SlowGemini: GeminiUsageService {
+            var reads = 0
+            func readUsage() async throws -> GeminiUsageSnapshot {
+                reads += 1
+                try await Task.sleep(nanoseconds: 30_000_000_000)
+                throw UsageError.timedOut
+            }
+        }
+        let connection = Connection()
+        let gemini = SlowGemini()
+        let store = makeStore(connection, gemini: gemini)
+        store.start()
+        await waitUntil { gemini.reads == 1 }
+        await store.applyAgyCustomPath("/usr/bin/true")
+        await waitUntil { gemini.reads == 2 }
+        await store.stop()
+    }
+
+    func testStopClearsEveryProviderSnapshot() async throws {
+        let connection = Connection()
+        let fixtureURL = Bundle.module.url(forResource: "agy-usage-sample", withExtension: "json", subdirectory: "Fixtures")
+            ?? URL(fileURLWithPath: "Tests/CodexUsageCoreTests/Fixtures/agy-usage-sample.json")
+        let store = makeStore(connection, gemini: MockGeminiAgyClient(mockData: try Data(contentsOf: fixtureURL)))
+        store.start()
+        await waitUntil { connection.reads == 1 }
+        connection.complete(.success(try snapshot()))
+        await waitUntil { store.geminiSnapshot != nil && !store.isRefreshing }
+        await store.stop()
+        XCTAssertNil(store.geminiSnapshot)
+        XCTAssertNil(store.geminiLastUpdated)
+    }
+
+    func testFailureShowsUnknownInMenuBarInsteadOfStaleValue() async throws {
+        let connection = Connection()
+        let gemini = CountingGemini()
+        gemini.error = nil
+        let store = makeStore(connection, gemini: gemini)
+        store.start()
+        await waitUntil { connection.reads == 1 }
+        connection.complete(.success(try snapshot()))
+        await waitUntil { !store.isRefreshing && !store.isGeminiRefreshing }
+        XCTAssertEqual(store.menuBarItems.first { $0.id == "codex" }?.summaryValue, "3%")
+
+        store.refreshCodex()
+        await waitUntil { connection.reads == 2 }
+        connection.complete(.failure(UsageError.timedOut))
+        await waitUntil { !store.isRefreshing }
+        let codex = try XCTUnwrap(store.menuBarItems.first { $0.id == "codex" })
+        XCTAssertEqual(codex.summaryValue, "?")
+        XCTAssertTrue(codex.hasError)
+        XCTAssertNotNil(store.snapshot, "The popover still shows the last known values, marked stale")
+        await store.stop()
+    }
+
+    func testTrackerChangesRepublishTheStore() async throws {
+        let store = makeStore(Connection())
+        var changes = 0
+        let subscription = store.objectWillChange.sink { changes += 1 }
+        store.claudeWeeklyTracker.record(resetsAt: 1_795_165_200, usedPercent: 5, accountId: "claude")
+        XCTAssertGreaterThan(changes, 0)
+        subscription.cancel()
+    }
+
+    func testQuicklyReenablingCodexWaitsForTheShutdownBeforeReading() async throws {
+        let connection = Connection()
+        let store = makeStore(connection)
+        store.start()
+        await waitUntil { connection.reads == 1 }
+        connection.complete(.success(try snapshot()))
+        await waitUntil { !store.isRefreshing && connection.isConnected }
+        connection.delayNextStop = true
+        store.isCodexEnabled = false
+        store.isCodexEnabled = true
+        // The shutdown is still in progress, so no read may go out on the dying connection yet.
+        await waitUntil { connection.stopContinuation != nil }
+        XCTAssertEqual(connection.reads, 1)
+        connection.stopContinuation?.resume()
+        connection.stopContinuation = nil
+        await waitUntil { connection.reads == 2 }
+        connection.complete(.success(try snapshot()))
+        await waitUntil { !store.isRefreshing }
+        XCTAssertNil(store.error)
+        XCTAssertEqual(codexValue(store), "3%")
+        await store.stop()
+    }
+
+    func testFailingGeminiAndClaudeActuallyScheduleWithBackoff() async throws {
+        let gemini = CountingGemini()
+        let claude = CountingClaude()
+        let store = makeStore(Connection(), gemini: gemini, claude: claude)
+        store.start()
+        await waitUntil { gemini.reads == 1 && claude.reads == 1 && !store.isGeminiRefreshing && !store.isClaudeRefreshing }
+        XCTAssertEqual(store.geminiRetryDelay, 60)
+        XCTAssertEqual(store.claudeRetryDelay, 60)
+        store.refreshGemini()
+        store.refreshClaude()
+        await waitUntil { gemini.reads == 2 && claude.reads == 2 && !store.isGeminiRefreshing && !store.isClaudeRefreshing }
+        XCTAssertEqual(store.geminiRetryDelay, 120)
+        XCTAssertEqual(store.claudeRetryDelay, 120)
+        gemini.error = nil
+        store.refreshGemini()
+        await waitUntil { gemini.reads == 3 && !store.isGeminiRefreshing }
+        XCTAssertEqual(store.geminiRetryDelay, 60)
+        await store.stop()
+    }
+
+    func testResolvedPathsAreReportedForGeminiAndClaude() async throws {
+        let store = makeStore(Connection())
+        await store.applyAgyCustomPath("/usr/bin/true")
+        await store.applyClaudeCustomPath("/bin/sh")
+        XCTAssertEqual(store.geminiResolvedPath, "/usr/bin/true")
+        XCTAssertEqual(store.claudeResolvedPath, "/bin/sh")
+        await store.applyClaudeCustomPath("/no/such/claude")
+        XCTAssertEqual(store.claudeResolvedPath, "/bin/sh", "A rejected path leaves the previous one in use")
+    }
+
+    func testStopWaitsForCancelledProviderReadsSoNoChildOutlivesTheApp() async throws {
+        /// Models a CLI child that is still exiting after cancellation.
+        final class SlowToExitGemini: GeminiUsageService {
+            var reads = 0
+            var finish: CheckedContinuation<Void, Never>?
+            func readUsage() async throws -> GeminiUsageSnapshot {
+                reads += 1
+                await withCheckedContinuation { finish = $0 }
+                throw CancellationError()
+            }
+        }
+        let gemini = SlowToExitGemini()
+        let connection = Connection()
+        let store = makeStore(connection, gemini: gemini)
+        store.start()
+        await waitUntil { gemini.reads == 1 && connection.reads == 1 }
+        var stopped = false
+        let stopping = Task { await store.stop(); stopped = true }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertFalse(stopped, "stop() must wait until the provider's child has exited")
+        gemini.finish?.resume()
+        await stopping.value
+        XCTAssertTrue(stopped)
     }
 }

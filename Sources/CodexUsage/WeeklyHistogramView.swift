@@ -30,10 +30,35 @@ struct WeeklyHistogramView: View {
     private let maxBarWidth: CGFloat = 32
     private let barHeight: CGFloat = 38
 
+    /// Matches the rest of the popover, which is rendered in English.
+    private var dateStyle: Date.FormatStyle {
+        Date.FormatStyle(locale: Locale(identifier: "en_US"), calendar: calendar, timeZone: calendar.timeZone)
+    }
+
+    private func date(forDay index: Int) -> Date? {
+        calendar.date(byAdding: .day, value: index, to: calendar.startOfDay(for: cycle.cycleStart))
+    }
+
+    private func weekday(forDay index: Int) -> String {
+        date(forDay: index)?.formatted(dateStyle.weekday(.abbreviated)) ?? "Day \(index + 1)"
+    }
+
+    /// An 8-bar cycle starts and ends on the same weekday; add the day of month to tell them apart.
+    private func dayLabel(forDay index: Int) -> String {
+        let name = weekday(forDay: index)
+        let repeats = (0..<barCount).contains { $0 != index && weekday(forDay: $0) == name }
+        guard repeats, let date = date(forDay: index) else { return name }
+        return "\(name) \(calendar.component(.day, from: date))"
+    }
+
+    private func usage(forDay index: Int) -> Double {
+        index < cycle.dailyUsage.count ? cycle.dailyUsage[index] : 0.0
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("Daily Usage (7-Day Cycle)")
+                Text("Daily Usage")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -41,7 +66,7 @@ struct WeeklyHistogramView: View {
                 Spacer(minLength: 4)
                 if !cycle.offlineGapDays.isEmpty {
                     Text("* Includes offline usage")
-                        .font(.system(size: 9))
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
@@ -56,13 +81,16 @@ struct WeeklyHistogramView: View {
             .frame(maxWidth: .infinity)
         }
         .padding(.vertical, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Daily usage")
+        .accessibilityValue(accessibilitySummary)
     }
 
     @ViewBuilder
     private func dayBar(index: Int) -> some View {
         let isCurrent = index == currentDayIndex
         let isFuture = index > currentDayIndex
-        let usage = index < cycle.dailyUsage.count ? cycle.dailyUsage[index] : 0.0
+        let usage = usage(forDay: index)
         let fillFraction = isFuture ? 0.0 : min(1.0, max(0.0, usage / maxUsage))
         let hasGap = cycle.offlineGapDays.contains(index)
 
@@ -73,32 +101,41 @@ struct WeeklyHistogramView: View {
                     .fill(Color.secondary.opacity(isFuture ? 0.08 : 0.15))
                     .frame(height: barHeight)
 
-                // Usage fill
+                // Usage fill; inset on today so the outline stays visible even when the bar is full.
                 if !isFuture && fillFraction > 0 {
-                    RoundedRectangle(cornerRadius: 3)
+                    let inset: CGFloat = isCurrent ? 3 : 0
+                    RoundedRectangle(cornerRadius: isCurrent ? 1.5 : 3)
                         .fill(isCurrent ? Color.accentColor : Color.accentColor.opacity(0.65))
-                        .frame(height: max(3.0, barHeight * fillFraction))
+                        .frame(height: max(3.0, (barHeight - inset * 2) * fillFraction))
+                        .padding(inset)
+                }
+            }
+            // Outline today's track so the current day doesn't rely on color alone.
+            .overlay {
+                if isCurrent {
+                    RoundedRectangle(cornerRadius: 3)
+                        .strokeBorder(Color.accentColor, lineWidth: 1.5)
                 }
             }
 
             // Day label
             HStack(spacing: 1) {
-                Text("D\(index + 1)")
-                    .font(.system(size: barCount > 7 ? 9 : 10, weight: isCurrent ? .bold : .regular))
+                Text(dayLabel(forDay: index))
+                    .fontWeight(isCurrent ? .bold : .regular)
                     .foregroundStyle(isCurrent ? .primary : .secondary)
                 if hasGap {
                     Text("*")
-                        .font(.system(size: 8, weight: .bold))
+                        .fontWeight(.bold)
                         .foregroundStyle(Color.orange)
                 }
             }
+            .font(.caption2)
             .lineLimit(1)
             .minimumScaleFactor(0.6)
 
             // Usage percentage
             Text(isFuture ? "-" : "\(Int(usage.rounded()))%")
-                .font(.system(size: barCount > 7 ? 8 : 9))
-                .monospacedDigit()
+                .font(.caption2.monospacedDigit())
                 .foregroundStyle(isCurrent ? .primary : .secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
@@ -107,27 +144,24 @@ struct WeeklyHistogramView: View {
         .help(tooltip(for: index, usage: usage, isCurrent: isCurrent, isFuture: isFuture, hasGap: hasGap))
     }
 
+    /// e.g. "Mon 0%, Tue 12%, Wed 30% today" — every day up to and including today.
+    private var accessibilitySummary: String {
+        var days = (0...currentDayIndex).map { index in
+            "\(dayLabel(forDay: index)) \(Int(usage(forDay: index).rounded()))%" + (index == currentDayIndex ? " today" : "")
+        }
+        if cycle.offlineGapDays.contains(where: { $0 <= currentDayIndex }) {
+            days.append("includes offline usage")
+        }
+        return days.joined(separator: ", ")
+    }
+
     private func tooltip(for index: Int, usage: Double, isCurrent: Bool, isFuture: Bool, hasGap: Bool) -> String {
-        let dayNum = index + 1
-        let cycleStartDay = calendar.startOfDay(for: cycle.cycleStart)
-        let barDate = calendar.date(byAdding: .day, value: index, to: cycleStartDay)
-
-        let dateStr: String
-        if let barDate {
-            let df = DateFormatter()
-            // Match the rest of the popover, which is rendered in English.
-            df.locale = Locale(identifier: "en_US")
-            df.timeZone = calendar.timeZone
-            df.dateFormat = "M/d (E)"
-            dateStr = " (\(df.string(from: barDate)))"
-        } else {
-            dateStr = ""
-        }
-
+        let day = date(forDay: index)?.formatted(dateStyle.weekday(.abbreviated).month(.abbreviated).day())
+            ?? "Day \(index + 1)"
         if isFuture {
-            return "Day \(dayNum)\(dateStr): Not yet reached"
+            return "\(day): Not yet reached"
         }
-        var info = "Day \(dayNum)\(dateStr): \(Int(usage.rounded()))% used"
+        var info = "\(day): \(Int(usage.rounded()))% used"
         if isCurrent {
             info += " (Today)"
         }

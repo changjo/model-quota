@@ -63,4 +63,11 @@ final class MenuBarLayoutTests: XCTestCase {
         XCTAssertEqual(columns[1].count, 2)
         XCTAssertEqual(columns[2].count, 1)
     }
+
+    func testAccessibilityTextSaysRemainingAndNeverReadsSymbols() {
+        XCTAssertEqual(ProviderUsageItem(id: "c", label: "Codex", summaryValue: "74% / 38%").accessibilityText,
+                       "Codex: 74% / 38% remaining")
+        XCTAssertEqual(ProviderUsageItem(id: "g", label: "Gemini", summaryValue: "?").accessibilityText, "Gemini: unavailable")
+        XCTAssertEqual(ProviderUsageItem(id: "a", label: "Claude", summaryValue: "…").accessibilityText, "Claude: checking")
+    }
 }
