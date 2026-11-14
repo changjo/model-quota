@@ -8,6 +8,22 @@
 
 This is an independent project, not an official OpenAI, Google, or Anthropic product.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/screenshots/menubar-dark.png">
+    <img src=".github/screenshots/menubar-light.png" alt="Menu bar item showing Codex 74% / 38%, Gemini 82% / 58%, and Claude 72% / 36%" width="235">
+  </picture>
+  <br><br>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/screenshots/popover-dark.png">
+    <img src=".github/screenshots/popover-light.png" alt="Popover with Codex 5-hour and weekly limits, reset times, and a daily usage chart" width="380">
+  </picture>
+  <br>
+  <sub>Menu bar item and popover, rendered with sample data.</sub>
+</p>
+
+## Features
+
 The menu bar shows remaining percentages in a clean 2-row grid. Click it for quota details. The interface uses native macOS controls, system fonts, and light and dark appearances.
 
 - Menu bar: left-aligned labels (`Codex`, `Gemini`, `Claude`) with right-aligned percentages (`74%`, `81%`), up to two rows per column, in the order you choose. A provider whose last read failed shows `?`.
@@ -133,7 +149,7 @@ Render the production SwiftUI views with sample data in light and dark appearanc
 ./scripts/render-ui.sh
 ```
 
-Images are saved to `.build/ui-previews`. This checks layout separately from live menu bar interaction tests.
+Images are saved to `.build/ui-previews`. This checks layout separately from live menu bar interaction tests. The README screenshots in `.github/screenshots` are copies of `two-limits-*` (popover) and `menubar-3-*` (menu bar).
 
 The icon source is `Resources/AppIcon.icon`; an exported PNG is available at `Resources/AppIcon.png`.
 
