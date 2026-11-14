@@ -29,7 +29,7 @@ The [installation guide](INSTALL.md) is copied to `dist/INSTALL.md` during build
 
 ## Build and run
 
-The app requires macOS 14 or later. App bundle builds have been verified with Xcode 27, which compiles the Icon Composer assets. The Swift sources use Swift 5.9 language mode and target macOS 14.
+The app requires macOS 14 or later. Local app bundle builds have been verified with Xcode 27, and release builds with Xcode 26.6 (the `macos-26` runner default); both compile the Icon Composer assets. The Swift sources use Swift 5.9 language mode and target macOS 14.
 
 The app has no external Swift package, Electron, Node, or Python runtime dependencies.
 
