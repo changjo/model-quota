@@ -6,7 +6,7 @@ public enum ProviderKind: String, CaseIterable, Sendable {
     public var defaultName: String {
         switch self {
         case .codex: return "Codex"
-        case .gemini: return "Gemini"
+        case .gemini: return "Antigravity"
         case .claude: return "Claude"
         }
     }

@@ -47,7 +47,7 @@ struct SettingsView: View {
                 .tabItem { Label("Codex", systemImage: "chevron.left.forwardslash.chevron.right") }
                 .tag(SettingsTab.codex)
             geminiTab
-                .tabItem { Label("Gemini", systemImage: "sparkles") }
+                .tabItem { Label("Antigravity", systemImage: "sparkles") }
                 .tag(SettingsTab.gemini)
             claudeTab
                 .tabItem { Label("Claude", systemImage: "bubble.left.and.text.bubble.right") }
@@ -182,7 +182,7 @@ struct SettingsView: View {
                           lastUpdated: store.geminiLastUpdated, refresh: store.refreshGemini)
             executableSection(
                 path: $agyPath, prompt: "Detect automatically", savedPath: store.agyCustomPath,
-                accessibilityName: "Gemini agy executable path",
+                accessibilityName: "Antigravity agy executable path",
                 showsValidationError: rejectedAgyPath == trimmedAgyPath,
                 resolvedPath: store.geminiResolvedPath,
                 footer: "Uses your local Antigravity CLI session. No API keys or tokens are stored.",

@@ -4,14 +4,14 @@
 
 <h1 align="center">Model Quota</h1>
 
-<p align="center">A lightweight native macOS menu bar app that shows your remaining AI model quotas for Codex, Gemini, and Claude Code.</p>
+<p align="center">A lightweight native macOS menu bar app that shows your remaining AI model quotas for Codex, Antigravity, and Claude Code.</p>
 
 This is an independent project, not an official OpenAI, Google, or Anthropic product.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/screenshots/menubar-dark.png">
-    <img src=".github/screenshots/menubar-light.png" alt="Menu bar item showing Codex 74% / 38%, Gemini 82% / 58%, and Claude 72% / 36%" width="235">
+    <img src=".github/screenshots/menubar-light.png" alt="Menu bar item showing Codex 74% / 38%, Antigravity 82% / 58%, and Claude 72% / 36%" width="235">
   </picture>
   <br><br>
   <picture>
@@ -26,8 +26,8 @@ This is an independent project, not an official OpenAI, Google, or Anthropic pro
 
 The menu bar shows remaining percentages in a clean 2-row grid. Click it for quota details. The interface uses native macOS controls, system fonts, and light and dark appearances.
 
-- Menu bar: left-aligned labels (`Codex`, `Gemini`, `Claude`) with right-aligned percentages (`74%`, `81%`), up to two rows per column, in the order you choose. A provider whose last read failed shows `?`.
-- Popover: details for Codex, Gemini (Antigravity `agy`), and Claude Code, in their own order. It shows the remaining percentage, colored orange at 25% or less and red at 10% or less with a warning symbol. It also shows reset countdowns, a daily usage histogram labeled by weekday, and when each provider was last updated; each of these can be hidden. Last known values are dimmed while a provider is failing.
+- Menu bar: left-aligned labels (`Codex`, `Antigravity`, `Claude`) with right-aligned percentages (`74%`, `81%`), up to two rows per column, in the order you choose. A provider whose last read failed shows `?`.
+- Popover: details for Codex, Antigravity (`agy`), and Claude Code, in their own order. It shows the remaining percentage, colored orange at 25% or less and red at 10% or less with a warning symbol. It also shows reset countdowns, a daily usage histogram labeled by weekday, and when each provider was last updated; each of these can be hidden. Last known values are dimmed while a provider is failing.
 - Turn each provider on or off. A disabled provider is hidden and never run.
 - Manual refresh, launch at login, configurable executable paths, and quit controls.
 - Refreshes at startup and in background with zero credentials leaked.
@@ -88,7 +88,7 @@ Open **Settings…** from the popover or press **⌘,** while the app is active.
   - **Menu Bar**: the Limit Format and the provider **Order**. Providers fill the menu bar in this order, two rows per column. If every enabled provider is hidden from the menu bar, the first enabled provider in this order is shown.
   - **Popover**: switches for the **Daily Usage chart**, **Reset time**, and **Last updated** details (all on by default; they apply to every provider), and a separate provider **Order** for the popover sections. Every visible section always shows its remaining percentages, bars, and error messages; a provider hidden from the popover but shown in the menu bar still shows `?` there when its read fails. If every enabled provider is hidden from the popover, it says so and offers **Open Settings…** instead of showing one anyway.
   - Reorder providers with the up and down arrow buttons next to each name. A provider that is turned off is tagged **Off**. One hidden from the menu bar (in the Menu Bar list) or from the popover (in the Popover list) is tagged **Hidden**. Both stay in the lists, dimmed, so you can arrange them in advance.
-- **Codex**, **Gemini**, and **Claude**: each tab has these controls.
+- **Codex**, **Antigravity**, and **Claude**: each tab has these controls.
   - **Enabled**: when off, the provider is hidden from the popover and menu bar, and its CLI is never run.
   - **Show in Menu Bar** and the menu bar label. An empty label uses the provider name.
   - **Show in Popover**: when off, the provider's section is left out of the popover. Its usage is still checked and still shown in the menu bar, and **Refresh** still refreshes it.
@@ -107,7 +107,7 @@ The app maintains one `codex app-server` child process and communicates over loc
 
 Usage and account responses are kept in memory. Settings (CLI paths, labels, provider and menu bar preferences) are saved in UserDefaults. To draw the daily usage histogram, the app also stores each provider's weekly usage history: daily percentages, reset times, and the Codex account identifier. It never stores credentials or tokens. This history lives in UserDefaults and `~/Library/Application Support/Model Quota/`, limited to the 12 most recent cycles. Launch at login uses Apple’s `SMAppService.mainApp`, with registration state managed by macOS.
 
-Claude and Gemini usage is read by briefly running the official CLIs: `claude --print` with a `get_usage` control request, which never starts a model turn, and `agy --print /usage`. Each provider is checked once a minute. After a failure, the interval doubles up to 5 minutes. A provider you turn off in Settings is never run.
+Claude and Antigravity usage is read by briefly running the official CLIs: `claude --print` with a `get_usage` control request, which never starts a model turn, and `agy --print /usage`. Each provider is checked once a minute. After a failure, the interval doubles up to 5 minutes. A provider you turn off in Settings is never run.
 
 The app does not request Full Disk Access, Accessibility, or Screen Recording permissions. Mac App Sandbox is not enabled. The CLI may write its own state under `~/.codex`.
 

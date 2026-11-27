@@ -164,7 +164,7 @@ public final class UsageStore: ObservableObject {
         self.showGeminiInMenuBar = defaults.object(forKey: "menuBarShowGemini") as? Bool ?? legacy?.object(forKey: "menuBarShowGemini") as? Bool ?? true
         self.showClaudeInMenuBar = defaults.object(forKey: "menuBarShowClaude") as? Bool ?? legacy?.object(forKey: "menuBarShowClaude") as? Bool ?? true
         self.codexLabel = defaults.string(forKey: "serviceLabelCodex") ?? legacy?.string(forKey: "serviceLabelCodex") ?? "Codex"
-        self.geminiLabel = defaults.string(forKey: "serviceLabelGemini") ?? legacy?.string(forKey: "serviceLabelGemini") ?? "Gemini"
+        self.geminiLabel = defaults.string(forKey: "serviceLabelGemini") ?? legacy?.string(forKey: "serviceLabelGemini") ?? "Antigravity"
         self.claudeLabel = defaults.string(forKey: "serviceLabelClaude") ?? legacy?.string(forKey: "serviceLabelClaude") ?? "Claude"
         let modeRaw = defaults.string(forKey: "menuBarDisplayMode") ?? legacy?.string(forKey: "menuBarDisplayMode") ?? MenuBarDisplayMode.both.rawValue
         self.menuBarDisplayMode = MenuBarDisplayMode(rawValue: modeRaw) ?? .both
@@ -229,7 +229,7 @@ public final class UsageStore: ObservableObject {
 
     /// Labels shown in the UI; an empty custom label falls back to the provider name.
     public var codexName: String { Self.displayName(codexLabel, default: "Codex") }
-    public var geminiName: String { Self.displayName(geminiLabel, default: "Gemini") }
+    public var geminiName: String { Self.displayName(geminiLabel, default: "Antigravity") }
     public var claudeName: String { Self.displayName(claudeLabel, default: "Claude") }
 
     private static func displayName(_ label: String, default name: String) -> String {

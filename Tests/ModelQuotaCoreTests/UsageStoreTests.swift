@@ -325,7 +325,7 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.geminiWeeklyTracker.currentCycle?.lastObservedPercent, store.geminiSnapshot?.weeklyBucket?.usedPercent)
         XCTAssertEqual(store.menuBarItems.count, 2)
         XCTAssertEqual(store.menuBarItems[0].label, "Codex")
-        XCTAssertEqual(store.menuBarItems[1].label, "Gemini")
+        XCTAssertEqual(store.menuBarItems[1].label, "Antigravity")
 
         // Test custom label change
         store.codexLabel = "GPT"
@@ -403,7 +403,7 @@ final class UsageStoreTests: XCTestCase {
         // Menu bar has 3 items
         XCTAssertEqual(store.menuBarItems.count, 3)
         XCTAssertEqual(store.menuBarItems[0].label, "Codex")
-        XCTAssertEqual(store.menuBarItems[1].label, "Gemini")
+        XCTAssertEqual(store.menuBarItems[1].label, "Antigravity")
         XCTAssertEqual(store.menuBarItems[2].label, "Claude")
         XCTAssertEqual(store.menuBarItems[2].summaryValue, "70% / 40%")
 
@@ -472,9 +472,9 @@ final class UsageStoreTests: XCTestCase {
         store.geminiLabel = ""
         store.claudeLabel = " Work "
         XCTAssertEqual(store.codexName, "Codex")
-        XCTAssertEqual(store.geminiName, "Gemini")
+        XCTAssertEqual(store.geminiName, "Antigravity")
         XCTAssertEqual(store.claudeName, "Work")
-        XCTAssertEqual(store.menuBarItems.map(\.label), ["Codex", "Gemini", "Work"])
+        XCTAssertEqual(store.menuBarItems.map(\.label), ["Codex", "Antigravity", "Work"])
     }
 
     func testDisabledProviderIsNotPolledAndIsHiddenFromMenuBar() async throws {
@@ -541,7 +541,7 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.menuBarItems.map(\.id), ["codex", "gemini", "claude"])
         store.menuBarOrder = [.claude, .codex, .gemini]
         XCTAssertEqual(store.menuBarItems.map(\.id), ["claude", "codex", "gemini"])
-        XCTAssertEqual(store.menuBarItems.map(\.label), ["Claude", "Codex", "Gemini"])
+        XCTAssertEqual(store.menuBarItems.map(\.label), ["Claude", "Codex", "Antigravity"])
         store.popoverOrder = [.gemini, .claude, .codex]
         XCTAssertEqual(store.menuBarItems.map(\.id), ["claude", "codex", "gemini"], "The popover order must not affect the menu bar")
         store.showCodexInMenuBar = false
@@ -733,7 +733,7 @@ final class UsageStoreTests: XCTestCase {
         store.claudeLabel = "Work"
         store.isGeminiEnabled = false
         store.showClaudeInMenuBar = false
-        XCTAssertEqual(ProviderKind.allCases.map(store.name(for:)), ["Codex", "Gemini", "Work"])
+        XCTAssertEqual(ProviderKind.allCases.map(store.name(for:)), ["Codex", "Antigravity", "Work"])
         XCTAssertEqual(ProviderKind.allCases.map(store.isEnabled), [true, false, true])
         XCTAssertEqual(ProviderKind.allCases.map(store.isShownInMenuBar), [true, true, false])
     }
