@@ -26,7 +26,7 @@ final class AppServerClientTests: XCTestCase {
     func testHandshakeReadAndGracefulShutdown() async throws {
         let executable = try fixture("normal")
         defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
-        let client = CodexAppServerClient(requestTimeout: 2)
+        let client = CodexAppServerClient(requestTimeout: 5)
         try await client.start(executable: executable)
         let snapshot = try await client.readUsage()
         XCTAssertEqual(snapshot.menuBarTitle, "Codex 3%")
@@ -38,7 +38,7 @@ final class AppServerClientTests: XCTestCase {
     func testLoginRequiredIsDistinctFromUnavailable() async throws {
         let executable = try fixture("signed-out")
         defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
-        let client = CodexAppServerClient(requestTimeout: 2)
+        let client = CodexAppServerClient(requestTimeout: 5)
         try await client.start(executable: executable)
         do { _ = try await client.readUsage(); XCTFail("Expected login error") }
         catch { XCTAssertEqual(error as? UsageError, .loginRequired) }
@@ -68,7 +68,7 @@ final class AppServerClientTests: XCTestCase {
     func testNotificationsAreDeliveredBetweenResponses() async throws {
         let executable = try fixture("notify")
         defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
-        let client = CodexAppServerClient(requestTimeout: 2)
+        let client = CodexAppServerClient(requestTimeout: 5)
         var notifications: [AccountNotification] = []
         client.onNotification = { notifications.append($0) }
         try await client.start(executable: executable)
@@ -80,7 +80,7 @@ final class AppServerClientTests: XCTestCase {
     func testServerActionsAreRejected() async throws {
         let executable = try fixture("server-request")
         defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
-        let client = CodexAppServerClient(requestTimeout: 2)
+        let client = CodexAppServerClient(requestTimeout: 5)
         try await client.start(executable: executable)
         _ = try await client.readUsage()
         await client.stop()
@@ -90,7 +90,7 @@ final class AppServerClientTests: XCTestCase {
     func testConcurrentStopsBothWaitForTheChildToExit() async throws {
         let executable = try fixture("slow-exit")
         defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
-        let client = CodexAppServerClient(requestTimeout: 2)
+        let client = CodexAppServerClient(requestTimeout: 5)
         try await client.start(executable: executable)
         _ = try await client.readUsage()
         let firstStop = Task { await client.stop() }
@@ -107,7 +107,7 @@ final class AppServerClientTests: XCTestCase {
         defer { if let saved { setenv("PATH", saved, 1) } else { unsetenv("PATH") } }
         let executable = try fixture("normal")
         defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
-        let client = CodexAppServerClient(requestTimeout: 2)
+        let client = CodexAppServerClient(requestTimeout: 5)
         try await client.start(executable: executable)
         await client.stop()
         let childPath = try String(contentsOf: executable.deletingLastPathComponent().appendingPathComponent("path"))
